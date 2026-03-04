@@ -1,0 +1,369 @@
+---
+name: tugestorai
+description: >
+  Skill para desarrollar TuGestorAI, un bot de Telegram para autónomos españoles que genera
+  presupuestos y facturas profesionales en PDF mediante mensajes de voz. Stack: Java 17 + Servlets/Tomcat
+  (sin Spring), Vue 3 frontend, PostgreSQL, OpenPDF, TelegramBots (rubenlagus), Whisper API para
+  transcripción de voz, y Claude API (Haiku) para estructuración de datos.
+  
+  Usa esta skill SIEMPRE que trabajes en el proyecto TuGestorAI o en cualquier tarea relacionada con:
+  bot de Telegram en Java, generación de presupuestos/facturas PDF, transcripción de audio con Whisper,
+  integración con Claude API, servlets Java sin Spring, o cualquier archivo dentro del repositorio
+  tugestorai. También cuando el usuario mencione "presupuestos", "facturas", "bot telegram",
+  "autónomos", o haga referencia a funcionalidades del proyecto como envío de PDFs, gestión de
+  clientes, o procesamiento de voz. Actívate incluso si el usuario no nombra explícitamente el
+  proyecto pero trabaja en archivos o patrones que coincidan con esta arquitectura.
+---
+
+# TuGestorAI - Skill de Desarrollo
+
+## Visión del Proyecto
+
+TuGestorAI es un bot de Telegram que permite a autónomos españoles del sector servicios (fontaneros,
+electricistas, instaladores) generar presupuestos y facturas profesionales en PDF mediante mensajes
+de voz, directamente desde su lugar de trabajo.
+
+El flujo principal es:
+1. El autónomo envía un audio por Telegram: "Presupuesto para María García, cambio de termo, material 280, mano de obra 120"
+2. Whisper API transcribe el audio a texto
+3. Claude API (Haiku) extrae y estructura los datos del presupuesto
+4. El bot presenta un borrador para validación
+5. El autónomo confirma o corrige por voz/texto
+6. Se genera un PDF profesional con OpenPDF
+7. Se envía al cliente por Telegram o email
+
+## Stack Tecnológico
+
+| Componente | Tecnología | Notas |
+|---|---|---|
+| Backend | Java 17, Servlets, Tomcat 10 | Sin Spring. Patrón MVC manual con servlets |
+| Frontend | Vue 3 (confirmar Composition vs Options API) | Panel de administración web |
+| Base de datos | PostgreSQL | Esquema relacional, sin ORM pesado (JDBC directo o JDBC Template ligero) |
+| Bot | TelegramBots (rubenlagus) `org.telegram:telegrambots` | Recepción de audio y mensajes |
+| Transcripción | Whisper API (OpenAI) | Coste ~€0.01 por audio de 60s |
+| IA Estructuración | Claude API (Haiku) via Anthropic SDK | Parseo de texto libre a JSON estructurado |
+| PDF | OpenPDF | Fork open-source de iText, generación de presupuestos/facturas |
+| Build | Maven | Gestión de dependencias y build |
+| Servidor | Tomcat 10+ en Linux (AlmaLinux/IONOS) | Despliegue en VPS |
+
+## Arquitectura del Proyecto
+
+### Estructura de directorios esperada
+
+```
+tugestorai/
+├── pom.xml
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/tugestorai/
+│   │   │       ├── bot/              # Lógica del bot de Telegram
+│   │   │       │   ├── TuGestorBot.java
+│   │   │       │   ├── handlers/     # Handlers por tipo de mensaje
+│   │   │       │   │   ├── VoiceHandler.java
+│   │   │       │   │   ├── TextHandler.java
+│   │   │       │   │   └── CallbackHandler.java
+│   │   │       │   └── session/      # Estado conversacional del usuario
+│   │   │       │       └── UserSession.java
+│   │   │       ├── servlet/          # Servlets HTTP (panel web + webhook)
+│   │   │       │   ├── WebhookServlet.java
+│   │   │       │   ├── DashboardServlet.java
+│   │   │       │   └── ApiServlet.java
+│   │   │       ├── service/          # Lógica de negocio
+│   │   │       │   ├── WhisperService.java
+│   │   │       │   ├── ClaudeService.java
+│   │   │       │   ├── PdfService.java
+│   │   │       │   ├── PresupuestoService.java
+│   │   │       │   └── FacturaService.java
+│   │   │       ├── model/            # POJOs / entidades
+│   │   │       │   ├── Usuario.java
+│   │   │       │   ├── Presupuesto.java
+│   │   │       │   ├── Factura.java
+│   │   │       │   ├── LineaDetalle.java
+│   │   │       │   └── DatosFiscales.java
+│   │   │       ├── dao/              # Acceso a datos (JDBC)
+│   │   │       │   ├── BaseDao.java
+│   │   │       │   ├── UsuarioDao.java
+│   │   │       │   ├── PresupuestoDao.java
+│   │   │       │   └── FacturaDao.java
+│   │   │       ├── util/             # Utilidades
+│   │   │       │   ├── DbUtil.java
+│   │   │       │   ├── ConfigUtil.java
+│   │   │       │   └── SecurityUtil.java
+│   │   │       └── filter/           # Filtros de servlet
+│   │   │           ├── AuthFilter.java
+│   │   │           └── CspFilter.java
+│   │   ├── resources/
+│   │   │   ├── config.properties
+│   │   │   ├── db/
+│   │   │   │   ├── schema.sql
+│   │   │   │   └── migrations/
+│   │   │   └── templates/
+│   │   │       ├── presupuesto.json   # Template del prompt para Claude
+│   │   │       └── factura.json
+│   │   └── webapp/
+│   │       ├── WEB-INF/
+│   │       │   └── web.xml
+│   │       └── static/               # Assets estáticos si los hay
+│   └── test/
+│       └── java/
+│           └── com/tugestorai/
+├── frontend/                          # Proyecto Vue 3
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── src/
+│   │   ├── App.vue
+│   │   ├── main.js
+│   │   ├── router/
+│   │   ├── views/
+│   │   │   ├── Dashboard.vue
+│   │   │   ├── Presupuestos.vue
+│   │   │   ├── Facturas.vue
+│   │   │   ├── Clientes.vue
+│   │   │   └── Configuracion.vue
+│   │   ├── components/
+│   │   └── api/
+│   │       └── index.js              # Llamadas al backend
+│   └── dist/                          # Build para servir desde Tomcat
+└── docs/
+```
+
+### Patrones de Código
+
+Dado que el proyecto es Java sin Spring, estos son los patrones que se deben seguir consistentemente:
+
+#### Patrón DAO con JDBC directo
+
+```java
+public class PresupuestoDao extends BaseDao {
+    
+    public Optional<Presupuesto> findById(long id) {
+        String sql = "SELECT * FROM presupuestos WHERE id = ?";
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapRow(rs));
+                }
+            }
+        } catch (SQLException e) {
+            throw new DaoException("Error buscando presupuesto id=" + id, e);
+        }
+        return Optional.empty();
+    }
+    
+    private Presupuesto mapRow(ResultSet rs) throws SQLException {
+        Presupuesto p = new Presupuesto();
+        p.setId(rs.getLong("id"));
+        p.setNumero(rs.getString("numero"));
+        p.setClienteNombre(rs.getString("cliente_nombre"));
+        // ... mapear campos
+        return p;
+    }
+}
+```
+
+#### Patrón Servlet con JSON
+
+```java
+@WebServlet("/api/presupuestos/*")
+public class PresupuestoApiServlet extends HttpServlet {
+    
+    private final PresupuestoService service = new PresupuestoService();
+    private final Gson gson = new Gson();
+    
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
+            throws ServletException, IOException {
+        resp.setContentType("application/json");
+        resp.setCharacterEncoding("UTF-8");
+        
+        String pathInfo = req.getPathInfo();
+        if (pathInfo == null || pathInfo.equals("/")) {
+            List<Presupuesto> lista = service.listarPorUsuario(getUsuarioId(req));
+            resp.getWriter().write(gson.toJson(lista));
+        } else {
+            long id = Long.parseLong(pathInfo.substring(1));
+            service.buscarPorId(id)
+                .ifPresentOrElse(
+                    p -> writeJson(resp, p),
+                    () -> sendError(resp, 404, "No encontrado")
+                );
+        }
+    }
+}
+```
+
+#### Gestión de conexiones
+
+```java
+public class DbUtil {
+    private static HikariDataSource dataSource;
+    
+    static {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(ConfigUtil.get("db.url"));
+        config.setUsername(ConfigUtil.get("db.user"));
+        config.setPassword(ConfigUtil.get("db.password"));
+        config.setMaximumPoolSize(10);
+        dataSource = new HikariDataSource(config);
+    }
+    
+    public static Connection getConnection() throws SQLException {
+        return dataSource.getConnection();
+    }
+}
+```
+
+#### Configuración centralizada
+
+```java
+public class ConfigUtil {
+    private static final Properties props = new Properties();
+    
+    static {
+        try (InputStream is = ConfigUtil.class.getClassLoader()
+                .getResourceAsStream("config.properties")) {
+            props.load(is);
+        } catch (IOException e) {
+            throw new RuntimeException("No se pudo cargar config.properties", e);
+        }
+        // Variables de entorno sobreescriben fichero (para producción)
+        props.stringPropertyNames().forEach(key -> {
+            String envKey = key.toUpperCase().replace('.', '_');
+            String envVal = System.getenv(envKey);
+            if (envVal != null) props.setProperty(key, envVal);
+        });
+    }
+    
+    public static String get(String key) {
+        return props.getProperty(key);
+    }
+}
+```
+
+## Convenciones del Proyecto
+
+### Java
+
+- **Java 17**: Usar text blocks, records donde tenga sentido, try-with-resources siempre, switch expressions
+- **Sin Spring**: No usar ninguna dependencia de Spring. Todo es servlets + JDBC + clases propias
+- **Nomenclatura**: Clases en PascalCase, métodos/variables en camelCase, constantes en UPPER_SNAKE_CASE
+- **Paquetes**: `com.tugestorai.{bot,servlet,service,model,dao,util,filter}`
+- **Excepciones**: Excepciones propias que extiendan RuntimeException (`DaoException`, `ServiceException`, `BotException`)
+- **Logging**: SLF4J + Logback
+- **SQL**: PreparedStatement siempre (nunca concatenación de strings). Parámetros con `?`
+- **Seguridad**: Content Security Policy sin inline JS/CSS. Escapar HTML. CSRF tokens en formularios
+- **Codificación**: UTF-8 en todo (respuestas HTTP, conexiones DB, ficheros)
+
+### Base de datos (PostgreSQL)
+
+- Nombres de tablas y columnas en `snake_case`
+- Claves primarias: `id BIGSERIAL PRIMARY KEY`
+- Timestamps: `created_at TIMESTAMP DEFAULT NOW()`, `updated_at TIMESTAMP`
+- Soft delete donde tenga sentido: `deleted_at TIMESTAMP NULL`
+- Índices en columnas de búsqueda frecuente
+- Foreign keys con `ON DELETE CASCADE` o `RESTRICT` según contexto
+
+### Vue 3 (Frontend)
+
+- Confirmar si es Composition API o Options API revisando el código existente
+- Componentes en PascalCase: `PresupuestoList.vue`
+- Composables en `use` prefix: `usePresupuestos.js`
+- Llamadas al backend centralizadas en `api/`
+- Vite como bundler
+
+### Documentación
+
+- Comentarios JavaDoc en clases y métodos públicos
+- Comentarios en español (el código es para desarrollador hispanohablante)
+- README.md con instrucciones de despliegue
+
+## Integraciones Externas
+
+### Telegram Bot (TelegramBots rubenlagus)
+
+Lee `references/telegram-integration.md` para detalles de implementación del bot, manejo de
+audios, sesiones conversacionales e inline keyboards.
+
+### Whisper API (OpenAI)
+
+Lee `references/whisper-integration.md` para detalles de cómo enviar audios OGG desde Telegram
+a Whisper API y obtener la transcripción.
+
+### Claude API (Anthropic Haiku)
+
+Lee `references/claude-integration.md` para el diseño de prompts que extraen datos estructurados
+de presupuestos a partir de texto libre en español.
+
+### OpenPDF
+
+Lee `references/pdf-generation.md` para la generación de PDFs profesionales de presupuestos y
+facturas con datos fiscales españoles.
+
+## Modelo de Datos
+
+Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema como fuente de verdad para nombres de tablas, columnas y tipos.
+
+
+## Flujos de Negocio Clave
+
+### Flujo: Audio → Presupuesto PDF
+
+1. **Recepción**: `VoiceHandler` recibe el audio OGG de Telegram
+2. **Descarga**: Se descarga el fichero de audio vía Telegram API
+3. **Transcripción**: `WhisperService.transcribe(audioFile)` → texto en español
+4. **Estructuración**: `ClaudeService.parsePresupuesto(transcripcion)` → JSON con cliente, conceptos, importes
+5. **Validación**: Bot presenta borrador al usuario con inline keyboard (Confirmar / Editar / Cancelar)
+6. **Persistencia**: `PresupuestoService.crear(datos)` → Guarda en PostgreSQL
+7. **PDF**: `PdfService.generarPresupuesto(presupuesto)` → Fichero PDF
+8. **Envío**: Bot envía PDF al autónomo y opcionalmente al cliente
+
+### Flujo: Presupuesto → Factura
+
+1. El autónomo solicita convertir presupuesto aceptado en factura
+2. Se copian datos y líneas de detalle
+3. Se añade IRPF (15% por defecto para autónomos)
+4. Se genera número de factura secuencial
+5. Se genera PDF de factura con formato fiscal español
+
+### Límites Freemium
+
+- Plan free: 5 presupuestos/mes (no facturas)
+- Plan pro: Ilimitado + facturación + estadísticas
+- El contador se reinicia el día 1 de cada mes
+- `PresupuestoService` verifica límites antes de crear
+
+## Seguridad
+
+- API keys (Whisper, Claude, Telegram) en variables de entorno, nunca en código
+- HTTPS obligatorio en producción
+- CSP headers sin inline JS/CSS (usar `CspFilter`)
+- Prepared statements siempre (prevención SQL injection)
+- Escapar output HTML (prevención XSS)
+- Validar y sanitizar toda entrada del usuario
+- Rate limiting en el bot (prevenir abuso)
+- Tokens CSRF en formularios del panel web
+
+## Despliegue
+
+- Servidor: VPS IONOS con AlmaLinux
+- Tomcat 10 detrás de Apache HTTP Server como reverse proxy
+- SSL/TLS con Let's Encrypt
+- PostgreSQL local o en servidor dedicado
+- Variables de entorno para configuración sensible
+- Build: `mvn clean package` genera WAR
+- Frontend: `npm run build` en `frontend/`, copiar `dist/` a `webapp/static/`
+
+## Cuando trabajes en este proyecto
+
+1. **Antes de generar código nuevo**, revisa la estructura existente del proyecto para mantener consistencia
+2. **Sigue los patrones** de DAO, Service y Servlet establecidos — no introduzcas frameworks ni librerías adicionales sin discutirlo
+3. **Todo el SQL** debe usar PreparedStatement con parámetros
+4. **Los textos de usuario** (mensajes del bot, errores, labels) deben estar en español
+5. **Genera tests** cuando se creen nuevos servicios o DAOs
+6. **Documenta** con JavaDoc las clases públicas
+7. **Si necesitas detalles de integración**, lee el fichero de referencia correspondiente en `references/`
+8. **Respeta el modelo freemium**: toda funcionalidad nueva debe considerar los límites del plan
+9. **Prioriza el flujo principal** (audio → presupuesto → PDF) sobre funcionalidades secundarias
