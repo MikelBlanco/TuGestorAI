@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+             https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
+         version="6.0">
+
+    <display-name>TuGestorAI</display-name>
+    <description>Bot de Telegram para autónomos — presupuestos y facturas en PDF</description>
+
+    <!-- Codificación UTF-8 en todas las peticiones -->
+    <filter>
+        <filter-name>encodingFilter</filter-name>
+        <filter-class>com.tugestorai.filter.EncodingFilter</filter-class>
+        <init-param>
+            <param-name>encoding</param-name>
+            <param-value>UTF-8</param-value>
+        </init-param>
+    </filter>
+    <filter-mapping>
+        <filter-name>encodingFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+
+    <!-- Content Security Policy -->
+    <filter>
+        <filter-name>cspFilter</filter-name>
+        <filter-class>com.tugestorai.filter.CspFilter</filter-class>
+    </filter>
+    <filter-mapping>
+        <filter-name>cspFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+
+    <!-- Servlet de estado (health check) -->
+    <servlet>
+        <servlet-name>healthServlet</servlet-name>
+        <servlet-class>com.tugestorai.servlet.HealthServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>healthServlet</servlet-name>
+        <url-pattern>/health</url-pattern>
+    </servlet-mapping>
+
+    <!-- API REST de presupuestos -->
+    <servlet>
+        <servlet-name>presupuestoApiServlet</servlet-name>
+        <servlet-class>com.tugestorai.servlet.PresupuestoApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>presupuestoApiServlet</servlet-name>
+        <url-pattern>/api/presupuestos/*</url-pattern>
+    </servlet-mapping>
+
+    <!-- API REST de facturas -->
+    <servlet>
+        <servlet-name>facturaApiServlet</servlet-name>
+        <servlet-class>com.tugestorai.servlet.FacturaApiServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>facturaApiServlet</servlet-name>
+        <url-pattern>/api/facturas/*</url-pattern>
+    </servlet-mapping>
+
+    <!-- Sesión: 30 minutos de inactividad -->
+    <session-config>
+        <session-timeout>30</session-timeout>
+        <cookie-config>
+            <http-only>true</http-only>
+            <secure>true</secure>
+        </cookie-config>
+        <tracking-mode>COOKIE</tracking-mode>
+    </session-config>
+
+    <!-- Páginas de error -->
+    <error-page>
+        <error-code>404</error-code>
+        <location>/WEB-INF/error/404.html</location>
+    </error-page>
+    <error-page>
+        <error-code>500</error-code>
+        <location>/WEB-INF/error/500.html</location>
+    </error-page>
+
+</web-app>
