@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- =====================================================================
+         Propiedades
+         ===================================================================== -->
+    <property name="LOG_DIR"     value="${LOG_DIR:-logs}" />
+    <property name="APP_NAME"    value="tugestorai" />
+    <property name="MAX_SIZE"    value="10MB" />
+    <property name="MAX_HISTORY" value="30" />
+
+    <!-- =====================================================================
+         Patrón de formato
+         ===================================================================== -->
+    <property name="PATRON_CONSOLA"
+              value="%d{HH:mm:ss.SSS} %highlight(%-5level) %cyan(%logger{36}) - %msg%n" />
+    <property name="PATRON_FICHERO"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n" />
+
+    <!-- =====================================================================
+         Appender: consola (solo desarrollo)
+         ===================================================================== -->
+    <appender name="CONSOLA" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${PATRON_CONSOLA}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- =====================================================================
+         Appender: fichero rotativo — log principal
+         ===================================================================== -->
+    <appender name="FICHERO" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${APP_NAME}.log</file>
+        <encoder>
+            <pattern>${PATRON_FICHERO}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Rotación diaria, comprimido -->
+            <fileNamePattern>${LOG_DIR}/${APP_NAME}.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- =====================================================================
+         Appender: fichero de errores separado
+         ===================================================================== -->
+    <appender name="ERRORES" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${APP_NAME}-error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder>
+            <pattern>${PATRON_FICHERO}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/${APP_NAME}-error.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- =====================================================================
+         Niveles por paquete
+         ===================================================================== -->
+
+    <!-- Código propio: DEBUG en desarrollo, INFO en producción -->
+    <logger name="com.tugestorai" level="DEBUG" />
+
+    <!-- Bot de Telegram: reducir verbosidad de la librería -->
+    <logger name="org.telegram"              level="WARN" />
+    <logger name="com.fasterxml.jackson"     level="WARN" />
+
+    <!-- HikariCP: solo avisos de pool -->
+    <logger name="com.zaxxer.hikari"         level="INFO" />
+    <logger name="com.zaxxer.hikari.pool"    level="WARN" />
+
+    <!-- OpenPDF -->
+    <logger name="org.openpdf"               level="WARN" />
+
+    <!-- Tomcat / Jakarta -->
+    <logger name="org.apache"                level="WARN" />
+
+    <!-- =====================================================================
+         Root logger
+         ===================================================================== -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLA" />
+        <appender-ref ref="FICHERO" />
+        <appender-ref ref="ERRORES" />
+    </root>
+
+</configuration>
