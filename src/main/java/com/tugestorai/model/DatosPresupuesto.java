@@ -1,6 +1,7 @@
 package com.tugestorai.model;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -11,7 +12,10 @@ import java.util.List;
 public class DatosPresupuesto {
 
     private String clienteNombre;
+    private String clienteTelefono;
+    private String clienteEmail;
     private String descripcion;
+    private String notas;
     private List<LineaDetalle> lineas = new ArrayList<>();
     private BigDecimal ivaPorcentaje = BigDecimal.valueOf(21);
 
@@ -28,7 +32,7 @@ public class DatosPresupuesto {
     public BigDecimal calcularIvaImporte() {
         return calcularSubtotal()
                 .multiply(ivaPorcentaje)
-                .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
     }
 
     /** Calcula el total (subtotal + IVA). */
@@ -39,8 +43,17 @@ public class DatosPresupuesto {
     public String getClienteNombre() { return clienteNombre; }
     public void setClienteNombre(String clienteNombre) { this.clienteNombre = clienteNombre; }
 
+    public String getClienteTelefono() { return clienteTelefono; }
+    public void setClienteTelefono(String clienteTelefono) { this.clienteTelefono = clienteTelefono; }
+
+    public String getClienteEmail() { return clienteEmail; }
+    public void setClienteEmail(String clienteEmail) { this.clienteEmail = clienteEmail; }
+
     public String getDescripcion() { return descripcion; }
     public void setDescripcion(String descripcion) { this.descripcion = descripcion; }
+
+    public String getNotas() { return notas; }
+    public void setNotas(String notas) { this.notas = notas; }
 
     public List<LineaDetalle> getLineas() { return lineas; }
     public void setLineas(List<LineaDetalle> lineas) { this.lineas = lineas; }
