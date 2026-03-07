@@ -306,7 +306,6 @@ facturas con datos fiscales españoles.
 
 Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema como fuente de verdad para nombres de tablas, columnas y tipos.
 
-
 ## Flujos de Negocio Clave
 
 ### Flujo: Audio → Presupuesto PDF
@@ -327,6 +326,31 @@ Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema
 3. Se añade IRPF (15% por defecto para autónomos)
 4. Se genera número de factura secuencial
 5. Se genera PDF de factura con formato fiscal español
+
+### Flujo: Consulta de presupuestos/facturas
+
+El autónomo puede consultar sus documentos por dos vías:
+
+**Vía Telegram (comandos del bot):**
+- `/presupuestos` — Lista presupuestos del mes actual (número, cliente, importe, estado)
+- `/presupuestos [mes]` — Lista de un mes concreto (ej: `/presupuestos marzo`)
+- `/facturas` — Lista facturas del mes actual
+- `/facturas [mes]` — Lista de un mes concreto
+- Respuesta como mensaje de texto con formato resumido. Si hay más de 10 resultados, paginar con inline keyboard (◀ Anterior / Siguiente ▶)
+
+**Vía panel web (Vue):**
+- Vista de tabla con columnas: número, fecha, cliente, importe total, estado
+- Filtros: rango de fechas, estado (borrador/enviado/aceptado/rechazado), cliente
+- Ordenación por fecha, importe o cliente
+- Acción rápida: descargar PDF, reenviar, convertir a factura
+- Resumen mensual: total facturado, total presupuestado, tasa de conversión
+
+**Consultas SQL base:**
+- Presupuestos del mes: filtrar por `usuario_id` y `created_at >= date_trunc('month', CURRENT_DATE)`
+- Facturas del mes: igual sobre tabla `facturas`
+- Resumen mensual: `SUM(total)`, `COUNT(*)`, agrupado por estado
+- Siempre ordenar por `created_at DESC`
+- Los DAOs deben ofrecer métodos: `listarPorMes(usuarioId, year, month)`, `resumenMensual(usuarioId, year, month)`
 
 ### Límites Freemium
 

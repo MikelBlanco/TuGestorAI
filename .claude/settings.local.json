@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile:*)",
+      "Bash(java:*)",
+      "Bash(JAVA_HOME=\"C:\\\\Users\\\\makys\\\\.jdks\\\\openjdk-21.0.2\" PATH=\"C:\\\\Users\\\\makys\\\\.jdks\\\\openjdk-21.0.2\\\\bin:$PATH\" mvn compile:*)",
+      "Bash(JAVA_HOME=\"C:\\\\Users\\\\makys\\\\.jdks\\\\openjdk-21.0.2\" PATH=\"C:\\\\Users\\\\makys\\\\.jdks\\\\openjdk-21.0.2\\\\bin:$PATH\" mvn package:*)",
+      "Bash(JAVA_HOME=\"C:\\\\Users\\\\makys\\\\.jdks\\\\openjdk-21.0.2\" PATH=\"C:\\\\Users\\\\makys\\\\.jdks\\\\openjdk-21.0.2\\\\bin:/c/ProgramData/chocolatey/bin:/c/Program Files/apache-maven-3.9.9/bin:$PATH\" mvn compile:*)"
+    ]
+  }
+}
