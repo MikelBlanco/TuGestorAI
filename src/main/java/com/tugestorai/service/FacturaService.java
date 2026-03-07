@@ -26,6 +26,7 @@ public class FacturaService {
     private final FacturaDao facturaDao = new FacturaDao();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
     private final NumeracionService numeracionService = new NumeracionService();
+    private final PdfService pdfService = new PdfService();
 
     /**
      * Convierte un presupuesto aceptado en una factura.
@@ -86,7 +87,17 @@ public class FacturaService {
 
         Factura guardada = facturaDao.crear(factura);
 
-        // Marcar el presupuesto como facturado
+        // Generar PDF
+        try {
+            java.io.File pdf = pdfService.generarFactura(guardada, usuario);
+            facturaDao.actualizarPdfPath(guardada.getId(), pdf.getAbsolutePath());
+            guardada.setPdfPath(pdf.getAbsolutePath());
+        } catch (Exception e) {
+            log.error("Error generando PDF factura id={}", guardada.getId(), e);
+            // No relanzamos: la factura está guardada, el PDF se puede regenerar
+        }
+
+        // Marcar el presupuesto como aceptado
         presupuestoDao.actualizarEstado(presupuestoId, Presupuesto.ESTADO_ACEPTADO);
 
         log.info("Factura creada id={} numero={} desde presupuesto id={}",
