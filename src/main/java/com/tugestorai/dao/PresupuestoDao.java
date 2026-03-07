@@ -108,6 +108,38 @@ public class PresupuestoDao extends BaseDao {
      * @param usuarioId ID del autónomo
      * @return número de presupuestos del mes en curso
      */
+    /**
+     * Cuenta los presupuestos creados por un usuario en un año concreto.
+     * Se usa para generar la numeración correlativa anual (P-2026-0001).
+     *
+     * @param usuarioId ID del autónomo
+     * @param anio      año de cuatro dígitos
+     * @return número de presupuestos del año
+     */
+    public int contarPorUsuarioYAnio(long usuarioId, int anio) {
+        String sql = """
+                SELECT COUNT(*)
+                  FROM presupuestos
+                 WHERE usuario_id = ?
+                   AND EXTRACT(YEAR FROM created_at) = ?
+                """;
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, usuarioId);
+            ps.setInt(2, anio);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            throw new DaoException("Error contando presupuestos del año " + anio +
+                    " para usuario=" + usuarioId, e);
+        }
+        return 0;
+    }
+
     public int contarPorUsuarioEnMes(long usuarioId) {
         String sql = """
                 SELECT COUNT(*)

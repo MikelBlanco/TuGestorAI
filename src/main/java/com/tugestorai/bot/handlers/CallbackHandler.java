@@ -9,14 +9,19 @@ import com.tugestorai.dao.UsuarioDao;
 import com.tugestorai.model.DatosPresupuesto;
 import com.tugestorai.model.Presupuesto;
 import com.tugestorai.model.Usuario;
+import com.tugestorai.service.NumeracionService;
+import com.tugestorai.service.PdfService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.io.File;
 import java.util.Optional;
 
 /**
@@ -29,6 +34,8 @@ public class CallbackHandler {
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
     private final UsuarioDao usuarioDao = new UsuarioDao();
+    private final NumeracionService numeracionService = new NumeracionService();
+    private final PdfService pdfService = new PdfService();
 
     public void handle(TuGestorBot bot, CallbackQuery callbackQuery) throws TelegramApiException {
         long chatId = callbackQuery.getMessage().getChatId();
@@ -76,7 +83,7 @@ public class CallbackHandler {
         Usuario usuario = usuarioOpt.get();
         DatosPresupuesto datos = session.getBorradorPresupuesto();
 
-        // Construir entidad Presupuesto
+        // Construir y persistir el presupuesto
         Presupuesto p = new Presupuesto();
         p.setUsuarioId(usuario.getId());
         p.setClienteNombre(datos.getClienteNombre());
@@ -88,30 +95,40 @@ public class CallbackHandler {
         p.setEstado(Presupuesto.ESTADO_BORRADOR);
         p.setAudioTranscript(session.getTranscripcion());
         p.setLineas(datos.getLineas());
-        p.setNumero(generarNumero(usuario.getId()));
+        p.setNumero(numeracionService.siguienteNumeroPresupuesto(usuario.getId()));
 
         Presupuesto guardado = presupuestoDao.crear(p);
         usuarioDao.incrementarContadorPresupuestos(usuario.getId());
 
-        // Eliminar botones del mensaje original
         quitarBotones(bot, callbackQuery);
-
         session.reset();
-
-        // TODO: en el siguiente paso generará el PDF y lo enviará aquí
-        bot.execute(SendMessage.builder()
-                .chatId(chatId)
-                .text(String.format(
-                        "✅ Presupuesto <b>%s</b> guardado correctamente.\n\n" +
-                        "Próximamente se generará el PDF automáticamente.",
-                        guardado.getNumero()))
-                .parseMode("HTML")
-                .build());
 
         bot.execute(AnswerCallbackQuery.builder()
                 .callbackQueryId(callbackId)
                 .text("¡Presupuesto guardado!")
                 .build());
+
+        // Generar PDF y enviarlo
+        try {
+            File pdf = pdfService.generarPresupuesto(guardado, usuario);
+            presupuestoDao.actualizarPdfPath(guardado.getId(), pdf.getAbsolutePath());
+
+            bot.execute(SendDocument.builder()
+                    .chatId(chatId)
+                    .document(new InputFile(pdf))
+                    .caption("✅ Presupuesto <b>" + guardado.getNumero() + "</b> generado.")
+                    .parseMode("HTML")
+                    .build());
+
+        } catch (Exception e) {
+            log.error("Error generando PDF presupuesto id={}", guardado.getId(), e);
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text("✅ Presupuesto <b>" + guardado.getNumero() + "</b> guardado, " +
+                          "pero no se pudo generar el PDF. Inténtalo de nuevo más tarde.")
+                    .parseMode("HTML")
+                    .build());
+        }
 
         log.info("Presupuesto confirmado id={} usuario={}", guardado.getId(), usuario.getId());
     }
@@ -161,13 +178,5 @@ public class CallbackHandler {
                 .messageId(callbackQuery.getMessage().getMessageId())
                 .replyMarkup(null)
                 .build());
-    }
-
-    /**
-     * Genera un número de presupuesto provisional hasta tener un generador real.
-     * Formato: PRES-{usuarioId}-{timestamp}
-     */
-    private String generarNumero(long usuarioId) {
-        return String.format("PRES-%d-%d", usuarioId, System.currentTimeMillis() % 100000);
     }
 }
