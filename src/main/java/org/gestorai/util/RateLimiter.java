@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>{@code limit.requests.per.hour}   — peticiones/hora por usuario, audio+texto (def: 10)</li>
  *   <li>{@code limit.requests.per.day}    — peticiones/día por usuario, audio+texto (def: 30)</li>
  *   <li>{@code limit.cost.daily.max}      — coste diario global máximo en euros (def: 3.00)</li>
+ *   <li>{@code limit.email.per.day}       — emails/día por usuario (def: 20)</li>
  * </ul>
  */
 public class RateLimiter {
@@ -44,12 +45,16 @@ public class RateLimiter {
     public final int maxPeticionesHora;
     /** Máximo de peticiones (audio+texto) por usuario en un día. */
     public final int maxPeticionesDia;
+    /** Máximo de emails por usuario en un día. */
+    public final int maxEmailsDia;
 
     private final long limiteGlobalMillieuros;
 
     // Ventanas deslizantes por usuario (compartidas audio + texto)
-    private final ConcurrentHashMap<Long, Deque<Instant>> ventanaHora = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, Deque<Instant>> ventanaDia  = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Deque<Instant>> ventanaHora  = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Deque<Instant>> ventanaDia   = new ConcurrentHashMap<>();
+    // Ventana deslizante 24h para emails por usuario
+    private final ConcurrentHashMap<Long, Deque<Instant>> ventanaEmail = new ConcurrentHashMap<>();
 
     // Coste acumulado hoy en millieuros con reset automático al cambiar de día
     private final AtomicLong costeDiario = new AtomicLong(0);
@@ -60,6 +65,7 @@ public class RateLimiter {
         maxTamanioBytes       = parseInt(ConfigUtil.get("limit.audio.max.size"),      1_048_576);
         maxPeticionesHora     = parseInt(ConfigUtil.get("limit.requests.per.hour"),   10);
         maxPeticionesDia      = parseInt(ConfigUtil.get("limit.requests.per.day"),    30);
+        maxEmailsDia          = parseInt(ConfigUtil.get("limit.email.per.day"),        20);
         limiteGlobalMillieuros = parseMillieuros(ConfigUtil.get("limit.cost.daily.max"), 3_000);
     }
 
@@ -78,7 +84,8 @@ public class RateLimiter {
         TAMANO_EXCEDIDO,
         LIMITE_HORA,
         LIMITE_DIA,
-        LIMITE_COSTE_GLOBAL
+        LIMITE_COSTE_GLOBAL,
+        LIMITE_EMAIL_DIA
     }
 
     /**
@@ -121,6 +128,29 @@ public class RateLimiter {
      */
     public void registrarTexto(long telegramId) {
         registrar(telegramId, COSTE_TEXTO_MILLIEUROS);
+    }
+
+    /**
+     * Comprueba si el usuario puede enviar un email (ventana deslizante 24h).
+     * No modifica contadores; llamar a {@link #registrarEmail(long)} tras enviar con éxito.
+     *
+     * @param telegramId identificador del usuario
+     * @return {@link Resultado#OK} o {@link Resultado#LIMITE_EMAIL_DIA}
+     */
+    public Resultado comprobarEmail(long telegramId) {
+        if (contarVentana(ventanaEmail, telegramId, Instant.now(), 86_400) >= maxEmailsDia)
+            return Resultado.LIMITE_EMAIL_DIA;
+        return Resultado.OK;
+    }
+
+    /**
+     * Registra un email enviado con éxito en la ventana deslizante del usuario.
+     *
+     * @param telegramId identificador del usuario
+     */
+    public void registrarEmail(long telegramId) {
+        registrarEnVentana(ventanaEmail, telegramId, Instant.now());
+        log.debug("Email registrado telegramId={}", telegramId);
     }
 
     // -------------------------------------------------------------------------

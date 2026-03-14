@@ -13,6 +13,7 @@ import org.gestorai.model.Usuario;
 import org.gestorai.service.EmailService;
 import org.gestorai.service.NumeracionService;
 import org.gestorai.service.PdfService;
+import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -52,6 +53,7 @@ public class CallbackHandler {
     private final NumeracionService numeracionService = new NumeracionService();
     private final PdfService pdfService = new PdfService();
     private final EmailService emailService = new EmailService();
+    private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
     public void handle(TuGestorBot bot, CallbackQuery callbackQuery) throws TelegramApiException {
         long chatId = callbackQuery.getMessage().getChatId();
@@ -243,6 +245,19 @@ public class CallbackHandler {
             return;
         }
 
+        // Verificar límite de emails/día antes de enviar
+        RateLimiter.Resultado limiteEmail = rateLimiter.comprobarEmail(telegramId);
+        if (limiteEmail == RateLimiter.Resultado.LIMITE_EMAIL_DIA) {
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(String.format(
+                            "📧 Has alcanzado el límite de %d emails hoy. " +
+                            "El contador se reinicia en las próximas 24 horas.",
+                            rateLimiter.maxEmailsDia))
+                    .build());
+            return;
+        }
+
         try {
             String nombre = pdfNombre != null ? pdfNombre : "presupuesto.pdf";
             String asunto = "Presupuesto " + nombre
@@ -253,6 +268,7 @@ public class CallbackHandler {
                             "Saludos,\nTuGestorAI";
 
             emailService.enviarConAdjunto(usuario.getEmail(), asunto, cuerpo, pdfBytes, nombre);
+            rateLimiter.registrarEmail(telegramId);
 
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
