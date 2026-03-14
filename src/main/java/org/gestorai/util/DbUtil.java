@@ -24,6 +24,12 @@ public class DbUtil {
     private static final HikariDataSource dataSource;
 
     static {
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("Driver PostgreSQL no encontrado en el classpath", e);
+        }
+
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(ConfigUtil.get("db.url"));
         config.setUsername(ConfigUtil.get("db.user"));
