@@ -128,8 +128,8 @@ public class WhisperService {
     private void escribirCampoFichero(ByteArrayOutputStream baos, String boundary, File file)
             throws IOException {
         baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-        baos.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" +
-                file.getName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+        baos.write(("Content-Disposition: form-data; name=\"file\"; filename=\"audio.ogg\"\r\n")
+                .getBytes(StandardCharsets.UTF_8));
         baos.write("Content-Type: audio/ogg\r\n\r\n".getBytes(StandardCharsets.UTF_8));
         baos.write(Files.readAllBytes(file.toPath()));
         baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
