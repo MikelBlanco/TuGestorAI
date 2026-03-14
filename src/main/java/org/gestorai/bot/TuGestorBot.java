@@ -113,7 +113,9 @@ public class TuGestorBot extends TelegramLongPollingBot {
         try {
             execute(SendMessage.builder()
                     .chatId(chatId)
-                    .text("⛔ Este bot es privado. Contacta con el administrador para solicitar acceso.")
+                    .text("⛔ Este bot es privado.\n" +
+                          "Tu ID de Telegram es: " + telegramId + "\n" +
+                          "Envía este número al administrador para solicitar acceso.")
                     .build());
         } catch (TelegramApiException e) {
             log.warn("No se pudo notificar acceso denegado a chatId={}", chatId, e);
