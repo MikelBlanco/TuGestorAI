@@ -2,6 +2,7 @@ package com.tugestorai.bot.session;
 
 import com.tugestorai.model.DatosPresupuesto;
 
+import java.io.File;
 import java.time.Instant;
 
 /**
@@ -14,6 +15,8 @@ public class UserSession {
     private SessionState state = SessionState.IDLE;
     private DatosPresupuesto borradorPresupuesto;
     private String transcripcion;
+    /** PDF pendiente de enviar por email tras confirmar un presupuesto. */
+    private File pendingPdfFile;
     private Instant lastActivity = Instant.now();
 
     public UserSession(long chatId) {
@@ -30,6 +33,7 @@ public class UserSession {
         this.state = SessionState.IDLE;
         this.borradorPresupuesto = null;
         this.transcripcion = null;
+        this.pendingPdfFile = null;
         touch();
     }
 
@@ -50,6 +54,12 @@ public class UserSession {
     public String getTranscripcion() { return transcripcion; }
     public void setTranscripcion(String transcripcion) {
         this.transcripcion = transcripcion;
+        touch();
+    }
+
+    public File getPendingPdfFile() { return pendingPdfFile; }
+    public void setPendingPdfFile(File pendingPdfFile) {
+        this.pendingPdfFile = pendingPdfFile;
         touch();
     }
 

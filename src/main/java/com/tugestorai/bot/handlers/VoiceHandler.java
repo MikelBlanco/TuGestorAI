@@ -5,6 +5,7 @@ import com.tugestorai.bot.session.SessionManager;
 import com.tugestorai.bot.session.SessionState;
 import com.tugestorai.bot.session.UserSession;
 import com.tugestorai.dao.UsuarioDao;
+import com.tugestorai.exception.ServiceException;
 import com.tugestorai.model.DatosPresupuesto;
 import com.tugestorai.model.LineaDetalle;
 import com.tugestorai.model.Usuario;
@@ -78,35 +79,44 @@ public class VoiceHandler {
                 .text("Procesando tu audio... un momento.")
                 .build());
 
-        // Descargar audio
-        Voice voice = message.getVoice();
-        GetFile getFileReq = new GetFile(voice.getFileId());
-        org.telegram.telegrambots.meta.api.objects.File tgFile = bot.execute(getFileReq);
-        File audioFile = bot.downloadFile(tgFile);
+        try {
+            // Descargar audio
+            Voice voice = message.getVoice();
+            GetFile getFileReq = new GetFile(voice.getFileId());
+            org.telegram.telegrambots.meta.api.objects.File tgFile = bot.execute(getFileReq);
+            File audioFile = bot.downloadFile(tgFile);
 
-        log.info("Audio descargado para chatId={} fileId={}", chatId, voice.getFileId());
+            log.info("Audio descargado para chatId={} fileId={}", chatId, voice.getFileId());
 
-        // Transcribir con Whisper
-        String transcripcion = whisperService.transcribe(audioFile);
-        log.info("Transcripción obtenida chatId={}: {}", chatId, transcripcion);
+            // Transcribir con Whisper
+            String transcripcion = whisperService.transcribe(audioFile);
+            log.info("Transcripción obtenida chatId={}: {}", chatId, transcripcion);
 
-        // Estructurar con Claude
-        DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
+            // Estructurar con Claude
+            DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
 
-        // Guardar borrador en sesión
-        UserSession session = sessionManager.getOrCreate(chatId);
-        session.setBorradorPresupuesto(datos);
-        session.setTranscripcion(transcripcion);
-        session.setState(SessionState.ESPERANDO_CONFIRMACION);
+            // Guardar borrador en sesión
+            UserSession session = sessionManager.getOrCreate(chatId);
+            session.setBorradorPresupuesto(datos);
+            session.setTranscripcion(transcripcion);
+            session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
-        // Presentar borrador con teclado de confirmación
-        String borrador = formatearBorrador(datos);
-        bot.execute(SendMessage.builder()
-                .chatId(chatId)
-                .text(borrador)
-                .parseMode("HTML")
-                .replyMarkup(crearTecladoConfirmacion())
-                .build());
+            // Presentar borrador con teclado de confirmación
+            String borrador = formatearBorrador(datos);
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(borrador)
+                    .parseMode("HTML")
+                    .replyMarkup(crearTecladoConfirmacion())
+                    .build());
+
+        } catch (ServiceException e) {
+            log.error("Error procesando audio chatId={}: {}", chatId, e.getMessage());
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo enviando otro audio.")
+                    .build());
+        }
     }
 
     // -------------------------------------------------------------------------

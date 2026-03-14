@@ -14,6 +14,9 @@ public enum SessionState {
     /** El usuario está editando un campo del presupuesto. */
     EDITANDO,
 
+    /** El presupuesto ha sido confirmado y se espera la respuesta sobre envío por email. */
+    ESPERANDO_CONFIRMACION_EMAIL,
+
     /** Se está recogiendo el nombre del cliente durante /start. */
     REGISTRO_NOMBRE,
 
