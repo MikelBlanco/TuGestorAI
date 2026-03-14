@@ -11,7 +11,7 @@
     <!-- Codificación UTF-8 en todas las peticiones -->
     <filter>
         <filter-name>encodingFilter</filter-name>
-        <filter-class>com.tugestorai.filter.EncodingFilter</filter-class>
+        <filter-class>org.gestorai.filter.EncodingFilter</filter-class>
         <init-param>
             <param-name>encoding</param-name>
             <param-value>UTF-8</param-value>
@@ -25,7 +25,7 @@
     <!-- Content Security Policy -->
     <filter>
         <filter-name>cspFilter</filter-name>
-        <filter-class>com.tugestorai.filter.CspFilter</filter-class>
+        <filter-class>org.gestorai.filter.CspFilter</filter-class>
     </filter>
     <filter-mapping>
         <filter-name>cspFilter</filter-name>
@@ -35,32 +35,12 @@
     <!-- Servlet de estado (health check) -->
     <servlet>
         <servlet-name>healthServlet</servlet-name>
-        <servlet-class>com.tugestorai.servlet.HealthServlet</servlet-class>
+        <servlet-class>org.gestorai.servlet.HealthServlet</servlet-class>
         <load-on-startup>1</load-on-startup>
     </servlet>
     <servlet-mapping>
         <servlet-name>healthServlet</servlet-name>
         <url-pattern>/health</url-pattern>
-    </servlet-mapping>
-
-    <!-- API REST de presupuestos -->
-    <servlet>
-        <servlet-name>presupuestoApiServlet</servlet-name>
-        <servlet-class>com.tugestorai.servlet.PresupuestoApiServlet</servlet-class>
-    </servlet>
-    <servlet-mapping>
-        <servlet-name>presupuestoApiServlet</servlet-name>
-        <url-pattern>/api/presupuestos/*</url-pattern>
-    </servlet-mapping>
-
-    <!-- API REST de facturas -->
-    <servlet>
-        <servlet-name>facturaApiServlet</servlet-name>
-        <servlet-class>com.tugestorai.servlet.FacturaApiServlet</servlet-class>
-    </servlet>
-    <servlet-mapping>
-        <servlet-name>facturaApiServlet</servlet-name>
-        <url-pattern>/api/facturas/*</url-pattern>
     </servlet-mapping>
 
     <!-- Sesión: 30 minutos de inactividad -->
