@@ -319,6 +319,18 @@ Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema
 7. **PDF**: `PdfService.generarPresupuesto(presupuesto)` → Fichero PDF
 8. **Envío**: Bot envía PDF al autónomo y opcionalmente al cliente
 
+### Flujo: Texto → Presupuesto PDF (alternativo)
+
+Mismo flujo que el de audio pero sin transcripción:
+
+1. El autónomo escribe un mensaje de texto libre (no comando) por Telegram
+2. Se envía directamente a `ClaudeService.parsePresupuesto()` (sin Whisper)
+3. A partir de aquí, flujo idéntico al de audio: borrador → confirmar/cancelar → PDF → envío
+
+Coste por presupuesto por texto: ~€0.001 (solo Claude Haiku, sin Whisper).
+
+En TextHandler: si el mensaje no empieza por `/` y el usuario está en estado IDLE, tratar como texto de presupuesto.
+
 ### Flujo: Presupuesto → Factura
 
 1. El autónomo solicita convertir presupuesto aceptado en factura
@@ -369,6 +381,25 @@ El autónomo puede consultar sus documentos por dos vías:
 - Validar y sanitizar toda entrada del usuario
 - Rate limiting en el bot (prevenir abuso)
 - Tokens CSRF en formularios del panel web
+
+
+## Protección de Costes
+
+Límites configurables en config.properties:
+
+| Límite | Valor | Config key |
+|---|---|---|
+| Duración máxima audio | 3 minutos (180s) | limit.audio.max.duration |
+| Tamaño máximo audio | 1MB (1048576 bytes) | limit.audio.max.size |
+| Audios por hora/usuario | 10 | limit.audio.per.hour |
+| Audios por día/usuario | 30 | limit.audio.per.day |
+| Coste diario global máximo | €3 (~430 audios de 1min) | limit.cost.daily.max |
+| Presupuestos/mes plan free | 5 | plan.free.limite.presupuestos |
+
+El VoiceHandler valida todos estos límites ANTES de descargar o procesar el audio.
+Rate limiting por usuario implementado con mapa en memoria con TTL.
+Coste diario global estimado a €0.007 por audio de 1 minuto (Whisper + Claude Haiku).
+Mensajes de rechazo amigables en español.
 
 ## Despliegue
 
