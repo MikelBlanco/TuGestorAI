@@ -176,7 +176,7 @@ public class CallbackHandler {
 
         bot.execute(SendMessage.builder()
                 .chatId(chatId)
-                .text("Por ahora, cancela y envía un nuevo audio corrigiendo los datos.")
+                .text("Por ahora, cancela y envía un nuevo audio o escribe los datos corregidos.")
                 .build());
     }
 
@@ -197,7 +197,7 @@ public class CallbackHandler {
 
         bot.execute(SendMessage.builder()
                 .chatId(chatId)
-                .text("Presupuesto cancelado. Envíame un nuevo audio cuando quieras.")
+                .text("Presupuesto cancelado. Envíame un audio o escribe los datos cuando quieras.")
                 .build());
     }
 
