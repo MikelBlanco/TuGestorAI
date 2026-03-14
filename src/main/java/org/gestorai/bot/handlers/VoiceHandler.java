@@ -1,6 +1,5 @@
 package org.gestorai.bot.handlers;
 
-import org.gestorai.bot.AudioRateLimiter;
 import org.gestorai.bot.TuGestorBot;
 import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
@@ -12,6 +11,7 @@ import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Usuario;
 import org.gestorai.service.ClaudeService;
 import org.gestorai.service.WhisperService;
+import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.ActionType;
@@ -41,7 +41,7 @@ public class VoiceHandler {
     private final ClaudeService claudeService = new ClaudeService();
     private final UsuarioDao usuarioDao = new UsuarioDao();
     private final SessionManager sessionManager = SessionManager.getInstance();
-    private final AudioRateLimiter rateLimiter = AudioRateLimiter.getInstance();
+    private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
     public void handle(TuGestorBot bot, Message message) throws TelegramApiException {
         long chatId = message.getChatId();
@@ -61,11 +61,11 @@ public class VoiceHandler {
 
         // 2. Validar metadatos del audio ANTES de descargarlo
         Voice voice = message.getVoice();
-        int duracion  = voice.getDuration() != null ? voice.getDuration() : 0;
-        int tamano    = voice.getFileSize()  != null ? voice.getFileSize()  : 0;
+        int duracion = voice.getDuration()  != null ? voice.getDuration()  : 0;
+        int tamano   = voice.getFileSize()  != null ? voice.getFileSize()  : 0;
 
-        AudioRateLimiter.Resultado resultado = rateLimiter.comprobar(telegramId, duracion, tamano);
-        if (resultado != AudioRateLimiter.Resultado.OK) {
+        RateLimiter.Resultado resultado = rateLimiter.comprobarAudio(telegramId, duracion, tamano);
+        if (resultado != RateLimiter.Resultado.OK) {
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text(mensajeLimite(resultado))
@@ -115,8 +115,8 @@ public class VoiceHandler {
             // 7. Estructurar con Claude
             DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
 
-            // 8. Registrar el audio en los contadores (procesamiento exitoso)
-            rateLimiter.registrar(telegramId);
+            // 8. Registrar en los contadores compartidos (procesamiento exitoso)
+            rateLimiter.registrarAudio(telegramId);
 
             // 9. Guardar borrador en sesión
             UserSession session = sessionManager.getOrCreate(chatId);
@@ -125,10 +125,9 @@ public class VoiceHandler {
             session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
             // 10. Presentar borrador con teclado de confirmación
-            String borrador = formatearBorrador(datos);
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
-                    .text(borrador)
+                    .text(formatearBorrador(datos))
                     .parseMode("HTML")
                     .replyMarkup(crearTecladoConfirmacion())
                     .build());
@@ -146,7 +145,7 @@ public class VoiceHandler {
     // Mensajes de límite
     // -------------------------------------------------------------------------
 
-    private String mensajeLimite(AudioRateLimiter.Resultado resultado) {
+    private String mensajeLimite(RateLimiter.Resultado resultado) {
         int maxMin = rateLimiter.maxDuracionSeg / 60;
         int maxMB  = rateLimiter.maxTamanioBytes / (1024 * 1024);
 
@@ -161,15 +160,16 @@ public class VoiceHandler {
                     "El tamaño máximo es <b>%d MB</b>. " +
                     "Envía un audio de menor calidad o duración.",
                     maxMB);
-            case LIMITE_HORA_USUARIO -> String.format(
+            case LIMITE_HORA -> String.format(
                     "⏳ <b>Límite por hora alcanzado.</b>\n\n" +
-                    "Has procesado %d audios en la última hora. " +
+                    "Puedes procesar hasta %d audios o mensajes por hora. " +
                     "Espera unos minutos e inténtalo de nuevo.",
-                    rateLimiter.maxAudiosHoraUsuario);
-            case LIMITE_DIA_USUARIO -> String.format(
+                    rateLimiter.maxPeticionesHora);
+            case LIMITE_DIA -> String.format(
                     "📅 <b>Límite diario alcanzado.</b>\n\n" +
-                    "Has procesado %d audios hoy. El contador se reinicia a medianoche.",
-                    rateLimiter.maxAudiosDiaUsuario);
+                    "Has alcanzado el máximo de %d peticiones hoy. " +
+                    "El contador se reinicia a medianoche.",
+                    rateLimiter.maxPeticionesDia);
             case LIMITE_COSTE_GLOBAL ->
                     "🔒 <b>Servicio temporalmente pausado.</b>\n\n" +
                     "El servicio ha alcanzado su límite de uso diario. " +
@@ -179,7 +179,7 @@ public class VoiceHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Helpers de formato
+    // Formato del borrador
     // -------------------------------------------------------------------------
 
     private String formatearBorrador(DatosPresupuesto datos) {

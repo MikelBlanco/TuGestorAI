@@ -4,14 +4,17 @@ import org.gestorai.exception.ServiceException;
 import org.gestorai.util.ConfigUtil;
 import jakarta.mail.*;
 import jakarta.mail.internet.*;
+import jakarta.mail.util.ByteArrayDataSource;
+import jakarta.activation.DataHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.util.Properties;
 
 /**
  * Envío de emails con adjuntos mediante Jakarta Mail (angus-mail).
+ *
+ * <p>Los PDFs se reciben en memoria ({@code byte[]}) y se adjuntan sin escribirlos en disco.</p>
  *
  * <p>Configuración vía {@code config.properties}:</p>
  * <pre>
@@ -33,16 +36,17 @@ public class EmailService {
     private final String emailFrom    = ConfigUtil.get("email.from");
 
     /**
-     * Envía un fichero PDF por email al destinatario indicado.
+     * Envía un PDF en memoria por email al destinatario indicado.
      *
-     * @param destinatario dirección de correo electrónico del destinatario
-     * @param asunto       asunto del mensaje
-     * @param cuerpo       cuerpo del mensaje en texto plano (UTF-8)
-     * @param adjunto      fichero PDF a adjuntar
+     * @param destinatario  dirección de correo electrónico del destinatario
+     * @param asunto        asunto del mensaje
+     * @param cuerpo        cuerpo del mensaje en texto plano (UTF-8)
+     * @param pdfBytes      bytes del PDF a adjuntar
+     * @param nombreFichero nombre del fichero adjunto (ej: {@code presupuesto_P-2026-0001.pdf})
      * @throws ServiceException si la configuración SMTP es incorrecta o hay error de envío
      */
     public void enviarConAdjunto(String destinatario, String asunto,
-                                  String cuerpo, File adjunto) {
+                                  String cuerpo, byte[] pdfBytes, String nombreFichero) {
         validarConfiguracion();
 
         Properties props = new Properties();
@@ -69,9 +73,11 @@ public class EmailService {
             MimeBodyPart textPart = new MimeBodyPart();
             textPart.setText(cuerpo, "UTF-8");
 
-            // Parte del adjunto PDF
+            // Parte del adjunto PDF (desde memoria, sin tocar disco)
             MimeBodyPart adjuntoPart = new MimeBodyPart();
-            adjuntoPart.attachFile(adjunto);
+            adjuntoPart.setDataHandler(
+                    new DataHandler(new ByteArrayDataSource(pdfBytes, "application/pdf")));
+            adjuntoPart.setFileName(nombreFichero);
 
             Multipart multipart = new MimeMultipart();
             multipart.addBodyPart(textPart);
@@ -79,7 +85,7 @@ public class EmailService {
             mensaje.setContent(multipart);
 
             Transport.send(mensaje);
-            log.info("Email enviado a {} con adjunto {}", destinatario, adjunto.getName());
+            log.info("Email enviado a {} con adjunto {}", destinatario, nombreFichero);
 
         } catch (Exception e) {
             throw new ServiceException("Error enviando email a " + destinatario, e);

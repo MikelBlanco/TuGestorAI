@@ -10,6 +10,7 @@ import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Usuario;
 import org.gestorai.service.ClaudeService;
+import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.ActionType;
@@ -28,7 +29,7 @@ import java.util.Optional;
  *
  * <p>Si el usuario envía texto libre (no comando) estando en estado {@link SessionState#IDLE},
  * se interpreta como un presupuesto dictado por escrito y se procesa directamente con
- * Claude, sin pasar por Whisper.</p>
+ * Claude, sin pasar por Whisper. El contador de rate limit es compartido con los audios.</p>
  */
 public class TextHandler {
 
@@ -37,6 +38,7 @@ public class TextHandler {
     private final UsuarioDao usuarioDao = new UsuarioDao();
     private final ClaudeService claudeService = new ClaudeService();
     private final SessionManager sessionManager = SessionManager.getInstance();
+    private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
     public void handle(TuGestorBot bot, Message message) throws TelegramApiException {
         long chatId = message.getChatId();
@@ -51,10 +53,10 @@ public class TextHandler {
 
         // Texto libre según el estado actual de la sesión
         switch (session.getState()) {
-            case REGISTRO_NOMBRE  -> procesarRegistroNombre(bot, message, session);
-            case REGISTRO_NIF     -> procesarRegistroNif(bot, message, session);
+            case REGISTRO_NOMBRE    -> procesarRegistroNombre(bot, message, session);
+            case REGISTRO_NIF       -> procesarRegistroNif(bot, message, session);
             case REGISTRO_DIRECCION -> procesarRegistroDireccion(bot, message, session);
-            case IDLE             -> procesarTextoPresupuesto(bot, message, session);
+            case IDLE               -> procesarTextoPresupuesto(bot, message, session);
             default -> enviarMensaje(bot, chatId,
                     "Envíame un audio o escribe los datos del presupuesto, " +
                     "o usa /ayuda para ver los comandos disponibles.");
@@ -78,6 +80,18 @@ public class TextHandler {
         }
 
         Usuario usuario = usuarioOpt.get();
+
+        // Verificar rate limit (contador compartido con audios)
+        RateLimiter.Resultado limitado = rateLimiter.comprobarTexto(telegramId);
+        if (limitado != RateLimiter.Resultado.OK) {
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(mensajeLimiteTexto(limitado))
+                    .parseMode("HTML")
+                    .build());
+            log.warn("Texto rechazado por límite={} telegramId={}", limitado, telegramId);
+            return;
+        }
 
         // Verificar límite del plan freemium
         if (!usuario.puedeCrearPresupuesto()) {
@@ -105,12 +119,14 @@ public class TextHandler {
             DatosPresupuesto datos = claudeService.parsePresupuesto(textoPresupuesto);
             log.info("Presupuesto por texto procesado chatId={}", chatId);
 
+            // Registrar en los contadores compartidos (procesamiento exitoso)
+            rateLimiter.registrarTexto(telegramId);
+
             // Guardar borrador en sesión (el texto original hace las veces de transcripción)
             session.setBorradorPresupuesto(datos);
             session.setTranscripcion(textoPresupuesto);
             session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
-            // Presentar borrador con teclado de confirmación
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text(formatearBorrador(datos))
@@ -125,6 +141,30 @@ public class TextHandler {
                     .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo.")
                     .build());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Mensajes de límite (texto — no incluye DURACION_EXCEDIDA ni TAMANO_EXCEDIDO)
+    // -------------------------------------------------------------------------
+
+    private String mensajeLimiteTexto(RateLimiter.Resultado resultado) {
+        return switch (resultado) {
+            case LIMITE_HORA -> String.format(
+                    "⏳ <b>Límite por hora alcanzado.</b>\n\n" +
+                    "Puedes procesar hasta %d audios o mensajes por hora. " +
+                    "Espera unos minutos e inténtalo de nuevo.",
+                    rateLimiter.maxPeticionesHora);
+            case LIMITE_DIA -> String.format(
+                    "📅 <b>Límite diario alcanzado.</b>\n\n" +
+                    "Has alcanzado el máximo de %d peticiones hoy. " +
+                    "El contador se reinicia a medianoche.",
+                    rateLimiter.maxPeticionesDia);
+            case LIMITE_COSTE_GLOBAL ->
+                    "🔒 <b>Servicio temporalmente pausado.</b>\n\n" +
+                    "El servicio ha alcanzado su límite de uso diario. " +
+                    "Estará disponible de nuevo mañana. Disculpa las molestias.";
+            default -> "Error inesperado. Inténtalo más tarde.";
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -162,7 +202,6 @@ public class TextHandler {
             return;
         }
 
-        // Nuevo usuario: iniciar flujo de registro
         session.setState(SessionState.REGISTRO_NOMBRE);
         enviarMensaje(bot, chatId,
                 "¡Hola! Soy TuGestorAI, tu asistente para presupuestos y facturas.\n\n" +
@@ -271,10 +310,8 @@ public class TextHandler {
             return;
         }
 
-        // Guardamos temporalmente el nombre en la sesión usando el campo descripcion
-        // del borrador como almacén temporal hasta tener un DTO de registro dedicado
         session.setBorradorPresupuesto(new DatosPresupuesto());
-        session.getBorradorPresupuesto().setClienteNombre(nombre); // reutilizamos campo para nombre temporal
+        session.getBorradorPresupuesto().setClienteNombre(nombre);
         session.setState(SessionState.REGISTRO_NIF);
         enviarMensaje(bot, chatId, "¿Cuál es tu NIF o CIF? (Puedes saltarlo respondiendo con un guión -)");
     }
@@ -284,7 +321,6 @@ public class TextHandler {
         long chatId = message.getChatId();
         String nif = message.getText().trim();
 
-        // Guardamos NIF en descripcion como almacén temporal
         session.getBorradorPresupuesto().setDescripcion(nif.equals("-") ? null : nif);
         session.setState(SessionState.REGISTRO_DIRECCION);
         enviarMensaje(bot, chatId, "¿Cuál es tu dirección fiscal? (Puedes saltarla con -)");
@@ -296,7 +332,6 @@ public class TextHandler {
         long telegramId = message.getFrom().getId();
         String direccion = message.getText().trim();
 
-        // Recuperar datos temporales del borrador
         String nombre = session.getBorradorPresupuesto().getClienteNombre();
         String nif    = session.getBorradorPresupuesto().getDescripcion();
 

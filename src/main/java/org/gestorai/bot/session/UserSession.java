@@ -2,7 +2,6 @@ package org.gestorai.bot.session;
 
 import org.gestorai.model.DatosPresupuesto;
 
-import java.io.File;
 import java.time.Instant;
 
 /**
@@ -15,8 +14,10 @@ public class UserSession {
     private SessionState state = SessionState.IDLE;
     private DatosPresupuesto borradorPresupuesto;
     private String transcripcion;
-    /** PDF pendiente de enviar por email tras confirmar un presupuesto. */
-    private File pendingPdfFile;
+    /** Bytes del PDF pendiente de enviar por email tras confirmar un presupuesto. */
+    private byte[] pendingPdfBytes;
+    /** Nombre del fichero PDF pendiente (ej: {@code presupuesto_P-2026-0001.pdf}). */
+    private String pendingPdfNombre;
     private Instant lastActivity = Instant.now();
 
     public UserSession(long chatId) {
@@ -28,12 +29,13 @@ public class UserSession {
         this.lastActivity = Instant.now();
     }
 
-    /** Resetea la sesión al estado inicial, limpiando el borrador. */
+    /** Resetea la sesión al estado inicial, limpiando el borrador y el PDF pendiente. */
     public void reset() {
         this.state = SessionState.IDLE;
         this.borradorPresupuesto = null;
         this.transcripcion = null;
-        this.pendingPdfFile = null;
+        this.pendingPdfBytes = null;
+        this.pendingPdfNombre = null;
         touch();
     }
 
@@ -57,9 +59,15 @@ public class UserSession {
         touch();
     }
 
-    public File getPendingPdfFile() { return pendingPdfFile; }
-    public void setPendingPdfFile(File pendingPdfFile) {
-        this.pendingPdfFile = pendingPdfFile;
+    public byte[] getPendingPdfBytes() { return pendingPdfBytes; }
+    public void setPendingPdfBytes(byte[] pendingPdfBytes) {
+        this.pendingPdfBytes = pendingPdfBytes;
+        touch();
+    }
+
+    public String getPendingPdfNombre() { return pendingPdfNombre; }
+    public void setPendingPdfNombre(String pendingPdfNombre) {
+        this.pendingPdfNombre = pendingPdfNombre;
         touch();
     }
 
