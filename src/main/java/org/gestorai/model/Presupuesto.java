@@ -27,7 +27,6 @@ public class Presupuesto {
     private BigDecimal total;
     private String estado;
     private String audioTranscript;
-    private String pdfPath;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime enviadoAt;
@@ -71,9 +70,6 @@ public class Presupuesto {
 
     public String getAudioTranscript() { return audioTranscript; }
     public void setAudioTranscript(String audioTranscript) { this.audioTranscript = audioTranscript; }
-
-    public String getPdfPath() { return pdfPath; }
-    public void setPdfPath(String pdfPath) { this.pdfPath = pdfPath; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

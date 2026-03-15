@@ -13,6 +13,7 @@ import org.gestorai.model.Usuario;
 import org.gestorai.service.EmailService;
 import org.gestorai.service.NumeracionService;
 import org.gestorai.service.PdfService;
+import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -25,7 +26,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.io.File;
+import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,7 +35,8 @@ import java.util.Optional;
  *
  * <p>Callbacks que maneja:</p>
  * <ul>
- *   <li>{@code confirmar_presupuesto} — guarda en BD, genera PDF, envía por Telegram y pregunta por email</li>
+ *   <li>{@code confirmar_presupuesto} — guarda en BD, genera PDF en memoria, envía por Telegram
+ *       y pregunta por email</li>
  *   <li>{@code editar_presupuesto}    — placeholder (fase posterior)</li>
  *   <li>{@code cancelar_presupuesto}  — descarta el borrador</li>
  *   <li>{@code email_si}             — envía el PDF por email al autónomo</li>
@@ -51,6 +53,7 @@ public class CallbackHandler {
     private final NumeracionService numeracionService = new NumeracionService();
     private final PdfService pdfService = new PdfService();
     private final EmailService emailService = new EmailService();
+    private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
     public void handle(TuGestorBot bot, CallbackQuery callbackQuery) throws TelegramApiException {
         long chatId = callbackQuery.getMessage().getChatId();
@@ -124,20 +127,21 @@ public class CallbackHandler {
                 .text("¡Presupuesto guardado!")
                 .build());
 
-        // Generar PDF y enviarlo por Telegram
+        // Generar PDF en memoria y enviarlo por Telegram
         try {
-            File pdf = pdfService.generarPresupuesto(guardado, usuario);
-            presupuestoDao.actualizarPdfPath(guardado.getId(), pdf.getAbsolutePath());
+            byte[] pdfBytes = pdfService.generarPresupuesto(guardado, usuario);
+            String pdfNombre = "presupuesto_" + guardado.getNumero().replace("/", "-") + ".pdf";
 
             bot.execute(SendDocument.builder()
                     .chatId(chatId)
-                    .document(new InputFile(pdf))
+                    .document(new InputFile(new ByteArrayInputStream(pdfBytes), pdfNombre))
                     .caption("✅ Presupuesto <b>" + guardado.getNumero() + "</b> generado.")
                     .parseMode("HTML")
                     .build());
 
             // Guardar PDF en sesión y preguntar si lo quiere también por email
-            session.setPendingPdfFile(pdf);
+            session.setPendingPdfBytes(pdfBytes);
+            session.setPendingPdfNombre(pdfNombre);
             session.setState(SessionState.ESPERANDO_CONFIRMACION_EMAIL);
 
             bot.execute(SendMessage.builder()
@@ -176,7 +180,7 @@ public class CallbackHandler {
 
         bot.execute(SendMessage.builder()
                 .chatId(chatId)
-                .text("Por ahora, cancela y envía un nuevo audio corrigiendo los datos.")
+                .text("Por ahora, cancela y envía un nuevo audio o escribe los datos corregidos.")
                 .build());
     }
 
@@ -197,7 +201,7 @@ public class CallbackHandler {
 
         bot.execute(SendMessage.builder()
                 .chatId(chatId)
-                .text("Presupuesto cancelado. Envíame un nuevo audio cuando quieras.")
+                .text("Presupuesto cancelado. Envíame un audio o escribe los datos cuando quieras.")
                 .build());
     }
 
@@ -209,7 +213,8 @@ public class CallbackHandler {
                                 UserSession session, CallbackQuery callbackQuery)
             throws TelegramApiException {
 
-        File pdf = session.getPendingPdfFile();
+        byte[] pdfBytes  = session.getPendingPdfBytes();
+        String pdfNombre = session.getPendingPdfNombre();
         session.reset();
         quitarBotones(bot, callbackQuery);
 
@@ -217,7 +222,7 @@ public class CallbackHandler {
                 .callbackQueryId(callbackId)
                 .build());
 
-        if (pdf == null || !pdf.exists()) {
+        if (pdfBytes == null || pdfBytes.length == 0) {
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("No encontré el PDF. Descárgalo desde el mensaje anterior.")
@@ -240,13 +245,30 @@ public class CallbackHandler {
             return;
         }
 
+        // Verificar límite de emails/día antes de enviar
+        RateLimiter.Resultado limiteEmail = rateLimiter.comprobarEmail(telegramId);
+        if (limiteEmail == RateLimiter.Resultado.LIMITE_EMAIL_DIA) {
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(String.format(
+                            "📧 Has alcanzado el límite de %d emails hoy. " +
+                            "El contador se reinicia en las próximas 24 horas.",
+                            rateLimiter.maxEmailsDia))
+                    .build());
+            return;
+        }
+
         try {
-            String asunto = "Presupuesto " + pdf.getName().replace(".pdf", "")
-                    .replace("presupuesto_", "").replace("-", "/");
+            String nombre = pdfNombre != null ? pdfNombre : "presupuesto.pdf";
+            String asunto = "Presupuesto " + nombre
+                    .replace(".pdf", "")
+                    .replace("presupuesto_", "")
+                    .replace("-", "/");
             String cuerpo = "Hola,\n\nAdjuntamos el presupuesto generado con TuGestorAI.\n\n" +
                             "Saludos,\nTuGestorAI";
 
-            emailService.enviarConAdjunto(usuario.getEmail(), asunto, cuerpo, pdf);
+            emailService.enviarConAdjunto(usuario.getEmail(), asunto, cuerpo, pdfBytes, nombre);
+            rateLimiter.registrarEmail(telegramId);
 
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
@@ -255,7 +277,7 @@ public class CallbackHandler {
                     .build());
 
             log.info("Presupuesto enviado por email a {} (fichero: {})",
-                    usuario.getEmail(), pdf.getName());
+                    usuario.getEmail(), nombre);
 
         } catch (ServiceException e) {
             log.error("Error enviando email a {}: {}", usuario.getEmail(), e.getMessage());

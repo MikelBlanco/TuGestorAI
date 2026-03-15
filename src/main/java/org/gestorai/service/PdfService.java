@@ -8,14 +8,11 @@ import org.gestorai.model.Factura;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Presupuesto;
 import org.gestorai.model.Usuario;
-import org.gestorai.util.ConfigUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.awt.Color;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -23,6 +20,9 @@ import java.util.List;
 
 /**
  * Genera documentos PDF profesionales de presupuestos y facturas con OpenPDF 3.x.
+ *
+ * <p>Los PDFs se generan completamente en memoria ({@code byte[]}) y no se escriben
+ * en disco. El llamador es responsable de enviarlos o descartarlos.</p>
  */
 public class PdfService {
 
@@ -36,8 +36,8 @@ public class PdfService {
     private static final Font FONT_TOTAL_BOLD = new Font(Font.HELVETICA, 12, Font.BOLD,  new Color(41, 128, 185));
 
     // Colores
-    private static final Color COLOR_PRIMARIO = new Color(41, 128, 185);
-    private static final Color COLOR_ALTERNO  = new Color(245, 245, 245);
+    private static final Color COLOR_PRIMARIO  = new Color(41, 128, 185);
+    private static final Color COLOR_ALTERNO   = new Color(245, 245, 245);
     private static final Color COLOR_SEPARADOR = new Color(200, 200, 200);
 
     private static final DateTimeFormatter FECHA_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -47,66 +47,66 @@ public class PdfService {
     // -------------------------------------------------------------------------
 
     /**
-     * Genera un PDF de presupuesto profesional.
+     * Genera un PDF de presupuesto profesional completamente en memoria.
      *
      * @param presupuesto datos completos con líneas de detalle
      * @param usuario     datos fiscales del autónomo emisor
-     * @return fichero PDF generado
+     * @return bytes del PDF generado
+     * @throws ServiceException si hay algún error al generar el documento
      */
-    public File generarPresupuesto(Presupuesto presupuesto, Usuario usuario) {
-        String nombre = "presupuesto_" + presupuesto.getNumero().replace("/", "-") + ".pdf";
-        File fichero = new File(obtenerDirectorio(), nombre);
-
+    public byte[] generarPresupuesto(Presupuesto presupuesto, Usuario usuario) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (Document doc = new Document(PageSize.A4, 50, 50, 50, 50)) {
-            PdfWriter.getInstance(doc, new FileOutputStream(fichero));
+            PdfWriter.getInstance(doc, baos);
             doc.open();
 
             agregarCabecera(doc, usuario);
             agregarTitulo(doc, "PRESUPUESTO", presupuesto.getNumero(), presupuesto.getCreatedAt());
-            agregarBloquecliente(doc, presupuesto.getClienteNombre(), presupuesto.getDescripcion());
+            agregarBloqueCliente(doc, presupuesto.getClienteNombre(), presupuesto.getDescripcion());
             agregarTablaConceptos(doc, presupuesto.getLineas());
             agregarTotalesPresupuesto(doc, presupuesto);
             agregarPiePresupuesto(doc, presupuesto.getIvaPorcentaje());
 
-        } catch (DocumentException | IOException e) {
+        } catch (DocumentException e) {
             throw new ServiceException("Error generando PDF presupuesto " + presupuesto.getNumero(), e);
         }
 
-        log.info("PDF presupuesto generado: {}", fichero.getAbsolutePath());
-        return fichero;
+        log.info("PDF presupuesto generado en memoria: numero={} bytes={}",
+                presupuesto.getNumero(), baos.size());
+        return baos.toByteArray();
     }
 
     /**
-     * Genera un PDF de factura con todos los datos fiscales obligatorios.
+     * Genera un PDF de factura con todos los datos fiscales obligatorios, completamente en memoria.
      *
      * <p>Incluye IRPF en el bloque de totales y el texto legal de conservación
      * de documentos fiscales (obligatorio en España).</p>
      *
      * @param factura datos completos con líneas de detalle
      * @param usuario datos fiscales del autónomo emisor
-     * @return fichero PDF generado
+     * @return bytes del PDF generado
+     * @throws ServiceException si hay algún error al generar el documento
      */
-    public File generarFactura(Factura factura, Usuario usuario) {
-        String nombre = "factura_" + factura.getNumero().replace("/", "-") + ".pdf";
-        File fichero = new File(obtenerDirectorio(), nombre);
-
+    public byte[] generarFactura(Factura factura, Usuario usuario) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (Document doc = new Document(PageSize.A4, 50, 50, 50, 50)) {
-            PdfWriter.getInstance(doc, new FileOutputStream(fichero));
+            PdfWriter.getInstance(doc, baos);
             doc.open();
 
             agregarCabecera(doc, usuario);
             agregarTitulo(doc, "FACTURA", factura.getNumero(), factura.getCreatedAt());
-            agregarBloquecliente(doc, factura.getClienteNombre(), factura.getDescripcion());
+            agregarBloqueCliente(doc, factura.getClienteNombre(), factura.getDescripcion());
             agregarTablaConceptos(doc, factura.getLineas());
             agregarTotalesFactura(doc, factura);
             agregarPieFactura(doc, factura, usuario);
 
-        } catch (DocumentException | IOException e) {
+        } catch (DocumentException e) {
             throw new ServiceException("Error generando PDF factura " + factura.getNumero(), e);
         }
 
-        log.info("PDF factura generado: {}", fichero.getAbsolutePath());
-        return fichero;
+        log.info("PDF factura generado en memoria: numero={} bytes={}",
+                factura.getNumero(), baos.size());
+        return baos.toByteArray();
     }
 
     // -------------------------------------------------------------------------
@@ -128,7 +128,7 @@ public class PdfService {
         StringBuilder sb = new StringBuilder();
         sb.append(usuario.getNombreComercial() != null
                 ? usuario.getNombreComercial() : usuario.getNombre());
-        if (usuario.getNif() != null)      sb.append("\nNIF: ").append(usuario.getNif());
+        if (usuario.getNif() != null)       sb.append("\nNIF: ").append(usuario.getNif());
         if (usuario.getDireccion() != null) sb.append("\n").append(usuario.getDireccion());
         if (usuario.getTelefono() != null)  sb.append("\nTel: ").append(usuario.getTelefono());
         if (usuario.getEmail() != null)     sb.append("\n").append(usuario.getEmail());
@@ -162,7 +162,7 @@ public class PdfService {
         doc.add(num);
     }
 
-    private void agregarBloquecliente(Document doc, String clienteNombre,
+    private void agregarBloqueCliente(Document doc, String clienteNombre,
                                       String descripcion) throws DocumentException {
         PdfPTable tabla = new PdfPTable(1);
         tabla.setWidthPercentage(50);
@@ -360,17 +360,5 @@ public class PdfService {
     private String formatDecimal(BigDecimal valor) {
         if (valor == null) return "1";
         return valor.stripTrailingZeros().toPlainString().replace(".", ",");
-    }
-
-    private File obtenerDirectorio() {
-        String ruta = ConfigUtil.get("pdf.output.dir");
-        File dir = (ruta != null && !ruta.isBlank())
-                ? new File(ruta)
-                : new File(System.getProperty("java.io.tmpdir"), "tugestorai-pdfs");
-        if (!dir.exists() && !dir.mkdirs()) {
-            throw new ServiceException(
-                    "No se pudo crear el directorio de PDFs: " + dir.getAbsolutePath());
-        }
-        return dir;
     }
 }

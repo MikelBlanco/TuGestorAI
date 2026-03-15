@@ -22,6 +22,12 @@ public class PresupuestoDao extends BaseDao {
 
     private static final Logger log = LoggerFactory.getLogger(PresupuestoDao.class);
 
+    private static final String COLUMNAS = """
+            id, numero, usuario_id, cliente_id, cliente_nombre, descripcion,
+            subtotal, iva_porcentaje, iva_importe, total, estado,
+            audio_transcript, created_at, updated_at, enviado_at
+            """;
+
     // -------------------------------------------------------------------------
     // Consultas
     // -------------------------------------------------------------------------
@@ -33,13 +39,7 @@ public class PresupuestoDao extends BaseDao {
      * @return el presupuesto, o {@link Optional#empty()} si no existe
      */
     public Optional<Presupuesto> findById(long id) {
-        String sql = """
-                SELECT id, numero, usuario_id, cliente_id, cliente_nombre, descripcion,
-                       subtotal, iva_porcentaje, iva_importe, total, estado,
-                       audio_transcript, pdf_path, created_at, updated_at, enviado_at
-                  FROM presupuestos
-                 WHERE id = ?
-                """;
+        String sql = "SELECT " + COLUMNAS + " FROM presupuestos WHERE id = ?";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
@@ -64,14 +64,7 @@ public class PresupuestoDao extends BaseDao {
      * @return lista ordenada por fecha de creación descendente
      */
     public List<Presupuesto> findByUsuarioId(long usuarioId) {
-        String sql = """
-                SELECT id, numero, usuario_id, cliente_id, cliente_nombre, descripcion,
-                       subtotal, iva_porcentaje, iva_importe, total, estado,
-                       audio_transcript, pdf_path, created_at, updated_at, enviado_at
-                  FROM presupuestos
-                 WHERE usuario_id = ?
-                 ORDER BY created_at DESC
-                """;
+        String sql = "SELECT " + COLUMNAS + " FROM presupuestos WHERE usuario_id = ? ORDER BY created_at DESC";
         return ejecutarListado(sql, usuarioId);
     }
 
@@ -82,14 +75,8 @@ public class PresupuestoDao extends BaseDao {
      * @param estado    valor del campo {@code estado} (ver constantes en {@link Presupuesto})
      */
     public List<Presupuesto> findByUsuarioIdAndEstado(long usuarioId, String estado) {
-        String sql = """
-                SELECT id, numero, usuario_id, cliente_id, cliente_nombre, descripcion,
-                       subtotal, iva_porcentaje, iva_importe, total, estado,
-                       audio_transcript, pdf_path, created_at, updated_at, enviado_at
-                  FROM presupuestos
-                 WHERE usuario_id = ? AND estado = ?
-                 ORDER BY created_at DESC
-                """;
+        String sql = "SELECT " + COLUMNAS +
+                     " FROM presupuestos WHERE usuario_id = ? AND estado = ? ORDER BY created_at DESC";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
@@ -101,13 +88,6 @@ public class PresupuestoDao extends BaseDao {
         }
     }
 
-    /**
-     * Cuenta los presupuestos creados por un usuario en el mes natural actual.
-     * Se usa para verificar el límite del plan freemium.
-     *
-     * @param usuarioId ID del autónomo
-     * @return número de presupuestos del mes en curso
-     */
     /**
      * Cuenta los presupuestos creados por un usuario en un año concreto.
      * Se usa para generar la numeración correlativa anual (P-2026-0001).
@@ -129,9 +109,7 @@ public class PresupuestoDao extends BaseDao {
             ps.setLong(1, usuarioId);
             ps.setInt(2, anio);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
+                if (rs.next()) return rs.getInt(1);
             }
         } catch (SQLException e) {
             throw new DaoException("Error contando presupuestos del año " + anio +
@@ -140,6 +118,13 @@ public class PresupuestoDao extends BaseDao {
         return 0;
     }
 
+    /**
+     * Cuenta los presupuestos creados por un usuario en el mes natural actual.
+     * Se usa para verificar el límite del plan freemium.
+     *
+     * @param usuarioId ID del autónomo
+     * @return número de presupuestos del mes en curso
+     */
     public int contarPorUsuarioEnMes(long usuarioId) {
         String sql = """
                 SELECT COUNT(*)
@@ -152,9 +137,7 @@ public class PresupuestoDao extends BaseDao {
 
             ps.setLong(1, usuarioId);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
+                if (rs.next()) return rs.getInt(1);
             }
         } catch (SQLException e) {
             throw new DaoException("Error contando presupuestos del mes para usuario=" + usuarioId, e);
@@ -298,28 +281,6 @@ public class PresupuestoDao extends BaseDao {
     }
 
     /**
-     * Guarda la ruta del PDF generado.
-     *
-     * @param id      ID del presupuesto
-     * @param pdfPath ruta absoluta o relativa al fichero PDF
-     */
-    public void actualizarPdfPath(long id, String pdfPath) {
-        String sql = "UPDATE presupuestos SET pdf_path = ? WHERE id = ?";
-
-        try (Connection conn = DbUtil.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, pdfPath);
-            ps.setLong(2, id);
-            ps.executeUpdate();
-            log.debug("PDF path actualizado presupuesto id={}", id);
-
-        } catch (SQLException e) {
-            throw new DaoException("Error actualizando pdf_path presupuesto id=" + id, e);
-        }
-    }
-
-    /**
      * Elimina un presupuesto. Las líneas de detalle se eliminan en cascada por la BD.
      *
      * @param id ID del presupuesto a eliminar
@@ -385,7 +346,6 @@ public class PresupuestoDao extends BaseDao {
         p.setTotal(rs.getBigDecimal("total"));
         p.setEstado(rs.getString("estado"));
         p.setAudioTranscript(rs.getString("audio_transcript"));
-        p.setPdfPath(rs.getString("pdf_path"));
 
         Timestamp createdAt = rs.getTimestamp("created_at");
         if (createdAt != null) p.setCreatedAt(createdAt.toLocalDateTime());

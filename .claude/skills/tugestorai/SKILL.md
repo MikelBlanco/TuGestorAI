@@ -1,18 +1,18 @@
 ---
 name: tugestorai
 description: >
-  Skill para desarrollar TuGestorAI, un bot de Telegram para autónomos españoles que genera
-  presupuestos y facturas profesionales en PDF mediante mensajes de voz. Stack: Java 17 + Servlets/Tomcat
-  (sin Spring), Vue 3 frontend, PostgreSQL, OpenPDF, TelegramBots (rubenlagus), Whisper API para
-  transcripción de voz, y Claude API (Haiku) para estructuración de datos.
-  
-  Usa esta skill SIEMPRE que trabajes en el proyecto TuGestorAI o en cualquier tarea relacionada con:
-  bot de Telegram en Java, generación de presupuestos/facturas PDF, transcripción de audio con Whisper,
-  integración con Claude API, servlets Java sin Spring, o cualquier archivo dentro del repositorio
-  tugestorai. También cuando el usuario mencione "presupuestos", "facturas", "bot telegram",
-  "autónomos", o haga referencia a funcionalidades del proyecto como envío de PDFs, gestión de
-  clientes, o procesamiento de voz. Actívate incluso si el usuario no nombra explícitamente el
-  proyecto pero trabaja en archivos o patrones que coincidan con esta arquitectura.
+   Skill para desarrollar TuGestorAI, un bot de Telegram para autónomos españoles que genera
+   presupuestos y facturas profesionales en PDF mediante mensajes de voz. Stack: Java 21 + Servlets/Tomcat
+   (sin Spring), Vue 3 frontend, PostgreSQL, OpenPDF, TelegramBots (rubenlagus), Whisper API para
+   transcripción de voz, y Claude API (Haiku) para estructuración de datos.
+
+   Usa esta skill SIEMPRE que trabajes en el proyecto TuGestorAI o en cualquier tarea relacionada con:
+   bot de Telegram en Java, generación de presupuestos/facturas PDF, transcripción de audio con Whisper,
+   integración con Claude API, servlets Java sin Spring, o cualquier archivo dentro del repositorio
+   tugestorai. También cuando el usuario mencione "presupuestos", "facturas", "bot telegram",
+   "autónomos", o haga referencia a funcionalidades del proyecto como envío de PDFs, gestión de
+   clientes, o procesamiento de voz. Actívate incluso si el usuario no nombra explícitamente el
+   proyecto pero trabaja en archivos o patrones que coincidan con esta arquitectura.
 ---
 
 
@@ -34,34 +34,39 @@ El flujo principal es:
 3. Claude API (Haiku) extrae y estructura los datos del presupuesto
 4. El bot presenta un borrador para validación
 5. El autónomo confirma o corrige por voz/texto
-6. Se genera un PDF profesional con OpenPDF
-7. Se envía al cliente por Telegram o email
+6. Se genera un PDF profesional con OpenPDF en memoria
+7. Se envía por Telegram y opcionalmente por email
 
 ## Stack Tecnológico
 
 | Componente | Tecnología | Notas |
 |---|---|---|
-| Backend | Java 17, Servlets, Tomcat 10 | Sin Spring. Patrón MVC manual con servlets |
+| Backend | Java 21, Servlets, Tomcat 10 | Sin Spring. Patrón MVC manual con servlets |
 | Frontend | Vue 3 (confirmar Composition vs Options API) | Panel de administración web |
-| Base de datos | PostgreSQL | Esquema relacional, sin ORM pesado (JDBC directo o JDBC Template ligero) |
+| Base de datos | PostgreSQL | Esquema relacional, sin ORM pesado (JDBC directo) |
 | Bot | TelegramBots (rubenlagus) `org.telegram:telegrambots` | Recepción de audio y mensajes |
-| Transcripción | Whisper API (OpenAI) | Coste ~€0.01 por audio de 60s |
-| IA Estructuración | Claude API (Haiku) via Anthropic SDK | Parseo de texto libre a JSON estructurado |
-| PDF | OpenPDF | Fork open-source de iText, generación de presupuestos/facturas |
+| Transcripción | Whisper API (OpenAI) | Coste ~€0.006 por audio de 60s |
+| IA Estructuración | Claude API (Haiku) | Parseo de texto libre a JSON estructurado |
+| PDF | OpenPDF | Fork open-source de iText, generación en memoria |
+| Email | Angus Mail (Jakarta Mail) | Envío de PDFs por email |
 | Build | Maven | Gestión de dependencias y build |
 | Servidor | Tomcat 10+ en Linux (AlmaLinux/IONOS) | Despliegue en VPS |
 
 ## Arquitectura del Proyecto
 
-### Estructura de directorios esperada
+### Estructura de directorios
 
 ```
 tugestorai/
 ├── pom.xml
+├── CLAUDE.md
+├── .claude/skills/tugestorai/
+│   ├── SKILL.md
+│   └── references/
 ├── src/
 │   ├── main/
 │   │   ├── java/
-│   │   │   └── com/tugestorai/
+│   │   │   └── org/gestorai/
 │   │   │       ├── bot/              # Lógica del bot de Telegram
 │   │   │       │   ├── TuGestorBot.java
 │   │   │       │   ├── handlers/     # Handlers por tipo de mensaje
@@ -70,14 +75,14 @@ tugestorai/
 │   │   │       │   │   └── CallbackHandler.java
 │   │   │       │   └── session/      # Estado conversacional del usuario
 │   │   │       │       └── UserSession.java
-│   │   │       ├── servlet/          # Servlets HTTP (panel web + webhook)
-│   │   │       │   ├── WebhookServlet.java
+│   │   │       ├── servlet/          # Servlets HTTP (panel web)
 │   │   │       │   ├── DashboardServlet.java
 │   │   │       │   └── ApiServlet.java
 │   │   │       ├── service/          # Lógica de negocio
 │   │   │       │   ├── WhisperService.java
 │   │   │       │   ├── ClaudeService.java
 │   │   │       │   ├── PdfService.java
+│   │   │       │   ├── EmailService.java
 │   │   │       │   ├── PresupuestoService.java
 │   │   │       │   └── FacturaService.java
 │   │   │       ├── model/            # POJOs / entidades
@@ -85,7 +90,7 @@ tugestorai/
 │   │   │       │   ├── Presupuesto.java
 │   │   │       │   ├── Factura.java
 │   │   │       │   ├── LineaDetalle.java
-│   │   │       │   └── DatosFiscales.java
+│   │   │       │   └── DatosPresupuesto.java
 │   │   │       ├── dao/              # Acceso a datos (JDBC)
 │   │   │       │   ├── BaseDao.java
 │   │   │       │   ├── UsuarioDao.java
@@ -94,42 +99,25 @@ tugestorai/
 │   │   │       ├── util/             # Utilidades
 │   │   │       │   ├── DbUtil.java
 │   │   │       │   ├── ConfigUtil.java
+│   │   │       │   ├── RateLimiter.java
 │   │   │       │   └── SecurityUtil.java
 │   │   │       └── filter/           # Filtros de servlet
 │   │   │           ├── AuthFilter.java
 │   │   │           └── CspFilter.java
 │   │   ├── resources/
 │   │   │   ├── config.properties
-│   │   │   ├── db/
-│   │   │   │   ├── schema.sql
-│   │   │   │   └── migrations/
-│   │   │   └── templates/
-│   │   │       ├── presupuesto.json   # Template del prompt para Claude
-│   │   │       └── factura.json
+│   │   │   └── logback.xml
 │   │   └── webapp/
 │   │       ├── WEB-INF/
 │   │       │   └── web.xml
-│   │       └── static/               # Assets estáticos si los hay
+│   │       └── static/
 │   └── test/
 │       └── java/
-│           └── com/tugestorai/
+│           └── org/gestorai/
 ├── frontend/                          # Proyecto Vue 3
 │   ├── package.json
 │   ├── vite.config.js
-│   ├── src/
-│   │   ├── App.vue
-│   │   ├── main.js
-│   │   ├── router/
-│   │   ├── views/
-│   │   │   ├── Dashboard.vue
-│   │   │   ├── Presupuestos.vue
-│   │   │   ├── Facturas.vue
-│   │   │   ├── Clientes.vue
-│   │   │   └── Configuracion.vue
-│   │   ├── components/
-│   │   └── api/
-│   │       └── index.js              # Llamadas al backend
-│   └── dist/                          # Build para servir desde Tomcat
+│   └── src/
 └── docs/
 ```
 
@@ -207,6 +195,7 @@ public class DbUtil {
     private static HikariDataSource dataSource;
     
     static {
+        Class.forName("org.postgresql.Driver");
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(ConfigUtil.get("db.url"));
         config.setUsername(ConfigUtil.get("db.user"));
@@ -252,14 +241,13 @@ public class ConfigUtil {
 
 ### Java
 
-- **Java 17**: Usar text blocks, records donde tenga sentido, try-with-resources siempre, switch expressions
+- **Java 21**: Usar text blocks, records donde tenga sentido, try-with-resources siempre, switch expressions, pattern matching
 - **Sin Spring**: No usar ninguna dependencia de Spring. Todo es servlets + JDBC + clases propias
 - **Nomenclatura**: Clases en PascalCase, métodos/variables en camelCase, constantes en UPPER_SNAKE_CASE
-- **Paquetes**: `com.tugestorai.{bot,servlet,service,model,dao,util,filter}`
+- **Paquetes**: `org.gestorai.{bot,servlet,service,model,dao,util,filter}`
 - **Excepciones**: Excepciones propias que extiendan RuntimeException (`DaoException`, `ServiceException`, `BotException`)
 - **Logging**: SLF4J + Logback
 - **SQL**: PreparedStatement siempre (nunca concatenación de strings). Parámetros con `?`
-- **Seguridad**: Content Security Policy sin inline JS/CSS. Escapar HTML. CSRF tokens en formularios
 - **Codificación**: UTF-8 en todo (respuestas HTTP, conexiones DB, ficheros)
 
 ### Base de datos (PostgreSQL)
@@ -307,6 +295,10 @@ de presupuestos a partir de texto libre en español.
 Lee `references/pdf-generation.md` para la generación de PDFs profesionales de presupuestos y
 facturas con datos fiscales españoles.
 
+### Email (Angus Mail)
+
+Lee `references/email-integration.md` para el envío de presupuestos y facturas por email.
+
 ## Modelo de Datos
 
 Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema como fuente de verdad para nombres de tablas, columnas y tipos.
@@ -320,17 +312,29 @@ Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema
 3. **Transcripción**: `WhisperService.transcribe(audioFile)` → texto en español
 4. **Estructuración**: `ClaudeService.parsePresupuesto(transcripcion)` → JSON con cliente, conceptos, importes
 5. **Borrador**: Bot presenta borrador formateado en Telegram con inline keyboard:
-    - ✅ Confirmar
-    - ✏️ Editar (fase posterior)
-    - ❌ Cancelar
+   - ✅ Confirmar
+   - ✏️ Editar (fase posterior)
+   - ❌ Cancelar
 6. **Si confirma**:
    a. `PresupuestoService.crear(datos)` → Guarda en PostgreSQL
-   b. `PdfService.generarPresupuesto(presupuesto)` → Fichero PDF
+   b. `PdfService.generarPresupuesto(presupuesto)` → byte[] en memoria
    c. Bot envía el PDF como documento por Telegram al autónomo
    d. Bot pregunta: "¿Quieres enviarlo también por email?" con inline keyboard (Sí / No)
-   e. Si sí → `EmailService.enviar(email, pdf)` → envía al email del autónomo
+   e. Si sí → `EmailService.enviar(email, pdfBytes)` → envía al email del autónomo
 7. **Si cancela**: Se descarta el borrador y se vuelve a estado IDLE
 8. **Si edita** (fase posterior): Flujo de corrección por texto/voz
+
+### Flujo: Texto → Presupuesto PDF (alternativo)
+
+Mismo flujo que el de audio pero sin transcripción:
+
+1. El autónomo escribe un mensaje de texto libre (no comando) por Telegram
+2. Se envía directamente a `ClaudeService.parsePresupuesto()` (sin Whisper)
+3. A partir de aquí, flujo idéntico al de audio: borrador → confirmar/cancelar → PDF → envío
+
+Coste por presupuesto por texto: ~€0.001 (solo Claude Haiku, sin Whisper).
+
+En TextHandler: si el mensaje no empieza por `/` y el usuario está en estado IDLE, tratar como texto de presupuesto.
 
 ### Flujo: Presupuesto → Factura
 
@@ -372,15 +376,72 @@ El autónomo puede consultar sus documentos por dos vías:
 - El contador se reinicia el día 1 de cada mes
 - `PresupuestoService` verifica límites antes de crear
 
+## Control de Acceso
+
+El bot es privado. Solo los usuarios autorizados pueden interactuar con él.
+
+Tabla de control:
+```sql
+CREATE TABLE usuarios_autorizados (
+    telegram_id BIGINT PRIMARY KEY,
+    autorizado_por VARCHAR(200),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+Flujo de verificación:
+1. CADA mensaje que llega al bot, antes de cualquier procesamiento, se verifica si el telegram_id está en `usuarios_autorizados`
+2. Si NO está autorizado → responder "⛔ Este bot es privado. Contacta con el administrador para solicitar acceso." y no procesar nada más
+3. Si está autorizado → procesar normalmente
+4. La verificación debe estar en TuGestorBot.onUpdateReceived(), antes de delegar a handlers
+5. Cachear los IDs autorizados en memoria (Set<Long>) y refrescar cada 5 minutos para no consultar la BD en cada mensaje
+
+Administración de usuarios autorizados:
+- Inserción manual en BD durante fase de pruebas
+- Futuro: comando /autorizar (solo para admin) desde Telegram
+
+## Generación de PDFs
+
+Los PDFs NO se almacenan en disco. Se generan al vuelo en memoria y se descartan tras el envío:
+- PdfService genera el PDF en un ByteArrayOutputStream, devuelve byte[]
+- Se envía a Telegram como InputFile desde byte array
+- Se envía por email como adjunto desde byte array
+- Si el usuario quiere reenviar, se regenera desde los datos en BD
+- No existe campo pdf_path en las tablas
+- No existe configuración pdf.output.dir
+
+## Protección de Costes
+
+Límites configurables en config.properties:
+
+| Límite | Valor | Config key |
+|---|---|---|
+| Duración máxima audio | 3 minutos (180s) | limit.audio.max.duration |
+| Tamaño máximo audio | 1MB (1048576 bytes) | limit.audio.max.size |
+| Peticiones por hora/usuario (audio+texto) | 10 | limit.requests.per.hour |
+| Peticiones por día/usuario (audio+texto) | 30 | limit.requests.per.day |
+| Reintentos Claude API por presupuesto | 1 | limit.claude.max.retries |
+| Emails por día/usuario | 20 | limit.email.per.day |
+| Coste diario global máximo | €3 | limit.cost.daily.max |
+| Presupuestos/mes plan free | 5 | plan.free.limite.presupuestos |
+
+Reglas:
+- Los rate limits de audio y texto son COMPARTIDOS (mismo contador)
+- El VoiceHandler y TextHandler validan los límites ANTES de llamar a APIs externas
+- Si Claude devuelve JSON inválido, se reintenta UNA sola vez. Si falla otra vez, se informa al usuario
+- El coste diario global se estima a €0.007 por audio y €0.001 por texto
+- Rate limiting implementado con mapa en memoria con TTL
+- Mensajes de rechazo amigables en español
+- Contador de emails por usuario y día en memoria
+
 ## Seguridad
 
 - API keys (Whisper, Claude, Telegram) en variables de entorno, nunca en código
 - HTTPS obligatorio en producción
-- CSP headers sin inline JS/CSS (usar `CspFilter`)
+- CSP headers sin inline JS/CSS (usar CspFilter)
 - Prepared statements siempre (prevención SQL injection)
 - Escapar output HTML (prevención XSS)
 - Validar y sanitizar toda entrada del usuario
-- Rate limiting en el bot (prevenir abuso)
 - Tokens CSRF en formularios del panel web
 
 ## Despliegue
@@ -404,3 +465,4 @@ El autónomo puede consultar sus documentos por dos vías:
 7. **Si necesitas detalles de integración**, lee el fichero de referencia correspondiente en `references/`
 8. **Respeta el modelo freemium**: toda funcionalidad nueva debe considerar los límites del plan
 9. **Prioriza el flujo principal** (audio → presupuesto → PDF) sobre funcionalidades secundarias
+10. **Comunicarse siempre en castellano**

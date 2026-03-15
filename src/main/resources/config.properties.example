@@ -12,9 +12,34 @@ anthropic.api.key=
 pdf.output.dir=/ruta/a/directorio/pdfs
 
 # Email (Jakarta Mail / angus-mail)
-# Variables de entorno equivalentes: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER, etc.
+# Variables de entorno equivalentes: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, etc.
 email.smtp.host=
 email.smtp.port=587
 email.smtp.user=
 email.smtp.password=
 email.from=
+
+# ─── Límites de protección de costes ─────────────────────────────────────────
+# Variables de entorno equivalentes: LIMIT_AUDIO_MAX_DURATION, etc.
+
+# Duración máxima de un audio aceptado (segundos). Defecto: 180 = 3 min
+limit.audio.max.duration=180
+
+# Tamaño máximo de un fichero de audio (bytes). Defecto: 1048576 = 1 MB
+limit.audio.max.size=1048576
+
+# Rate limit compartido (audio + texto) por usuario: máximo de peticiones en la última hora
+limit.requests.per.hour=10
+
+# Rate limit compartido (audio + texto) por usuario: máximo de peticiones en el último día
+limit.requests.per.day=30
+
+# Máximo de reintentos al llamar a Claude API si devuelve JSON inválido
+limit.claude.max.retries=1
+
+# Máximo de emails que un usuario puede recibir por día
+limit.email.per.day=20
+
+# Tope de coste diario global en euros. A €0,007 por audio y €0,001 por texto.
+# Defecto: 3.00 € ≈ 428 audios de 1 min
+limit.cost.daily.max=3.00

@@ -11,6 +11,7 @@ import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Usuario;
 import org.gestorai.service.ClaudeService;
 import org.gestorai.service.WhisperService;
+import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.ActionType;
@@ -31,8 +32,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Gestiona los mensajes de voz: descarga el audio, lo transcribe con Whisper
- * y estructura los datos con Claude, presentando un borrador al usuario.
+ * Gestiona los mensajes de voz: valida límites de uso, descarga el audio,
+ * lo transcribe con Whisper y estructura los datos con Claude,
+ * presentando un borrador al usuario.
  */
 public class VoiceHandler {
 
@@ -42,12 +44,13 @@ public class VoiceHandler {
     private final ClaudeService claudeService = new ClaudeService();
     private final UsuarioDao usuarioDao = new UsuarioDao();
     private final SessionManager sessionManager = SessionManager.getInstance();
+    private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
     public void handle(TuGestorBot bot, Message message) throws TelegramApiException {
         long chatId = message.getChatId();
         long telegramId = message.getFrom().getId();
 
-        // Verificar que el usuario esté registrado
+        // 1. Verificar que el usuario esté registrado
         Optional<Usuario> usuarioOpt = usuarioDao.findByTelegramId(telegramId);
         if (usuarioOpt.isEmpty()) {
             bot.execute(SendMessage.builder()
@@ -59,7 +62,24 @@ public class VoiceHandler {
 
         Usuario usuario = usuarioOpt.get();
 
-        // Verificar límite del plan freemium
+        // 2. Validar metadatos del audio ANTES de descargarlo
+        Voice voice = message.getVoice();
+        int duracion = voice.getDuration()  != null ? voice.getDuration()  : 0;
+        int tamano   = voice.getFileSize()  != null ? voice.getFileSize()  : 0;
+
+        RateLimiter.Resultado resultado = rateLimiter.comprobarAudio(telegramId, duracion, tamano);
+        if (resultado != RateLimiter.Resultado.OK) {
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(mensajeLimite(resultado))
+                    .parseMode("HTML")
+                    .build());
+            log.warn("Audio rechazado por límite={} telegramId={} duracion={}s tamano={}B",
+                    resultado, telegramId, duracion, tamano);
+            return;
+        }
+
+        // 3. Verificar límite del plan freemium
         if (!usuario.puedeCrearPresupuesto()) {
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
@@ -71,7 +91,7 @@ public class VoiceHandler {
             return;
         }
 
-        // Indicar al usuario que estamos procesando
+        // 4. Indicar al usuario que estamos procesando
         bot.execute(SendChatAction.builder()
                 .chatId(chatId)
                 .action(ActionType.TYPING.toString())
@@ -83,33 +103,35 @@ public class VoiceHandler {
                 .build());
 
         try {
-            // Descargar audio
-            Voice voice = message.getVoice();
+            // 5. Descargar audio
             GetFile getFileReq = new GetFile(voice.getFileId());
             org.telegram.telegrambots.meta.api.objects.File tgFile = bot.execute(getFileReq);
             File audioDescargado = bot.downloadFile(tgFile);
             File audioFile = asegurarExtensionOgg(audioDescargado);
 
-            log.info("Audio descargado para chatId={} fileId={} path={}", chatId, voice.getFileId(), audioFile.getName());
+            log.info("Audio descargado para chatId={} fileId={} path={} duracion={}s tamano={}B",
+                    chatId, voice.getFileId(), audioFile.getName(), duracion, tamano);
 
-            // Transcribir con Whisper
+            // 6. Transcribir con Whisper
             String transcripcion = whisperService.transcribe(audioFile);
             log.info("Transcripción obtenida chatId={}: {}", chatId, transcripcion);
 
-            // Estructurar con Claude
+            // 7. Estructurar con Claude
             DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
 
-            // Guardar borrador en sesión
+            // 8. Registrar en los contadores compartidos (procesamiento exitoso)
+            rateLimiter.registrarAudio(telegramId);
+
+            // 9. Guardar borrador en sesión
             UserSession session = sessionManager.getOrCreate(chatId);
             session.setBorradorPresupuesto(datos);
             session.setTranscripcion(transcripcion);
             session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
-            // Presentar borrador con teclado de confirmación
-            String borrador = formatearBorrador(datos);
+            // 10. Presentar borrador con teclado de confirmación
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
-                    .text(borrador)
+                    .text(formatearBorrador(datos))
                     .parseMode("HTML")
                     .replyMarkup(crearTecladoConfirmacion())
                     .build());
@@ -130,7 +152,44 @@ public class VoiceHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Helpers de formato
+    // Mensajes de límite
+    // -------------------------------------------------------------------------
+
+    private String mensajeLimite(RateLimiter.Resultado resultado) {
+        int maxMin = rateLimiter.maxDuracionSeg / 60;
+        int maxMB  = rateLimiter.maxTamanioBytes / (1024 * 1024);
+
+        return switch (resultado) {
+            case DURACION_EXCEDIDA -> String.format(
+                    "⏱ <b>Audio demasiado largo.</b>\n\n" +
+                    "El máximo permitido es <b>%d minutos</b>. " +
+                    "Graba un audio más corto con los datos del presupuesto.",
+                    maxMin);
+            case TAMANO_EXCEDIDO -> String.format(
+                    "📦 <b>Audio demasiado grande.</b>\n\n" +
+                    "El tamaño máximo es <b>%d MB</b>. " +
+                    "Envía un audio de menor calidad o duración.",
+                    maxMB);
+            case LIMITE_HORA -> String.format(
+                    "⏳ <b>Límite por hora alcanzado.</b>\n\n" +
+                    "Puedes procesar hasta %d audios o mensajes por hora. " +
+                    "Espera unos minutos e inténtalo de nuevo.",
+                    rateLimiter.maxPeticionesHora);
+            case LIMITE_DIA -> String.format(
+                    "📅 <b>Límite diario alcanzado.</b>\n\n" +
+                    "Has alcanzado el máximo de %d peticiones hoy. " +
+                    "El contador se reinicia a medianoche.",
+                    rateLimiter.maxPeticionesDia);
+            case LIMITE_COSTE_GLOBAL ->
+                    "🔒 <b>Servicio temporalmente pausado.</b>\n\n" +
+                    "El servicio ha alcanzado su límite de uso diario. " +
+                    "Estará disponible de nuevo mañana. Disculpa las molestias.";
+            default -> "Error inesperado. Inténtalo más tarde.";
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // Formato del borrador
     // -------------------------------------------------------------------------
 
     private String formatearBorrador(DatosPresupuesto datos) {
