@@ -36,7 +36,7 @@ public class EmailService {
     private final String emailFrom    = ConfigUtil.get("email.from");
 
     /**
-     * Envía un PDF en memoria por email al destinatario indicado.
+     * Envía un único adjunto por email.
      *
      * @param destinatario  dirección de correo electrónico del destinatario
      * @param asunto        asunto del mensaje
@@ -47,6 +47,21 @@ public class EmailService {
      */
     public void enviarConAdjunto(String destinatario, String asunto,
                                   String cuerpo, byte[] pdfBytes, String nombreFichero) {
+        enviarConAdjuntos(destinatario, asunto, cuerpo,
+                new Adjunto(pdfBytes, "application/pdf", nombreFichero));
+    }
+
+    /**
+     * Envía un email con múltiples adjuntos en memoria.
+     *
+     * @param destinatario dirección de correo electrónico del destinatario
+     * @param asunto       asunto del mensaje
+     * @param cuerpo       cuerpo del mensaje en texto plano (UTF-8)
+     * @param adjuntos     uno o más adjuntos ({@link Adjunto})
+     * @throws ServiceException si la configuración SMTP es incorrecta o hay error de envío
+     */
+    public void enviarConAdjuntos(String destinatario, String asunto,
+                                   String cuerpo, Adjunto... adjuntos) {
         validarConfiguracion();
 
         Properties props = new Properties();
@@ -69,28 +84,38 @@ public class EmailService {
             mensaje.setRecipients(Message.RecipientType.TO, InternetAddress.parse(destinatario));
             mensaje.setSubject(asunto, "UTF-8");
 
-            // Parte de texto
+            Multipart multipart = new MimeMultipart();
+
             MimeBodyPart textPart = new MimeBodyPart();
             textPart.setText(cuerpo, "UTF-8");
-
-            // Parte del adjunto PDF (desde memoria, sin tocar disco)
-            MimeBodyPart adjuntoPart = new MimeBodyPart();
-            adjuntoPart.setDataHandler(
-                    new DataHandler(new ByteArrayDataSource(pdfBytes, "application/pdf")));
-            adjuntoPart.setFileName(nombreFichero);
-
-            Multipart multipart = new MimeMultipart();
             multipart.addBodyPart(textPart);
-            multipart.addBodyPart(adjuntoPart);
-            mensaje.setContent(multipart);
 
+            for (Adjunto adj : adjuntos) {
+                MimeBodyPart part = new MimeBodyPart();
+                part.setDataHandler(new DataHandler(
+                        new ByteArrayDataSource(adj.bytes(), adj.mimeType())));
+                part.setFileName(adj.nombre());
+                multipart.addBodyPart(part);
+            }
+
+            mensaje.setContent(multipart);
             Transport.send(mensaje);
-            log.info("Email enviado a {} con adjunto {}", destinatario, nombreFichero);
+
+            log.info("Email enviado a {} con {} adjunto(s)", destinatario, adjuntos.length);
 
         } catch (Exception e) {
             throw new ServiceException("Error enviando email a " + destinatario, e);
         }
     }
+
+    /**
+     * Adjunto en memoria para incluir en un email.
+     *
+     * @param bytes    contenido del fichero
+     * @param mimeType tipo MIME (ej: {@code "application/pdf"})
+     * @param nombre   nombre del fichero adjunto
+     */
+    public record Adjunto(byte[] bytes, String mimeType, String nombre) {}
 
     // -------------------------------------------------------------------------
     // Helpers

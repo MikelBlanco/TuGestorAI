@@ -87,11 +87,9 @@ public class FacturaService {
 
         Factura guardada = facturaDao.crear(factura);
 
-        // Generar PDF
+        // Generar PDF (en memoria; el path ya no se persiste)
         try {
-            java.io.File pdf = pdfService.generarFactura(guardada, usuario);
-            facturaDao.actualizarPdfPath(guardada.getId(), pdf.getAbsolutePath());
-            guardada.setPdfPath(pdf.getAbsolutePath());
+            pdfService.generarFactura(guardada, usuario);
         } catch (Exception e) {
             log.error("Error generando PDF factura id={}", guardada.getId(), e);
             // No relanzamos: la factura está guardada, el PDF se puede regenerar

@@ -11,6 +11,7 @@ import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.Presupuesto;
 import org.gestorai.model.Usuario;
 import org.gestorai.service.EmailService;
+import org.gestorai.service.ExcelService;
 import org.gestorai.service.NumeracionService;
 import org.gestorai.service.PdfService;
 import org.gestorai.util.RateLimiter;
@@ -52,6 +53,7 @@ public class CallbackHandler {
     private final UsuarioDao usuarioDao = new UsuarioDao();
     private final NumeracionService numeracionService = new NumeracionService();
     private final PdfService pdfService = new PdfService();
+    private final ExcelService excelService = new ExcelService();
     private final EmailService emailService = new EmailService();
     private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
@@ -127,11 +129,16 @@ public class CallbackHandler {
                 .text("¡Presupuesto guardado!")
                 .build());
 
-        // Generar PDF en memoria y enviarlo por Telegram
+        // Generar PDF y Excel en memoria y enviarlos por Telegram
         try {
-            byte[] pdfBytes = pdfService.generarPresupuesto(guardado, usuario);
-            String pdfNombre = "presupuesto_" + guardado.getNumero().replace("/", "-") + ".pdf";
+            String base = "presupuesto_" + guardado.getNumero().replace("/", "-");
+            String pdfNombre  = base + ".pdf";
+            String xlsxNombre = base + ".xlsx";
 
+            byte[] pdfBytes  = pdfService.generarPresupuesto(guardado, usuario);
+            byte[] xlsxBytes = excelService.generarPresupuesto(guardado, usuario);
+
+            // Enviar PDF
             bot.execute(SendDocument.builder()
                     .chatId(chatId)
                     .document(new InputFile(new ByteArrayInputStream(pdfBytes), pdfNombre))
@@ -139,24 +146,32 @@ public class CallbackHandler {
                     .parseMode("HTML")
                     .build());
 
-            // Guardar PDF en sesión y preguntar si lo quiere también por email
+            // Enviar Excel
+            bot.execute(SendDocument.builder()
+                    .chatId(chatId)
+                    .document(new InputFile(new ByteArrayInputStream(xlsxBytes), xlsxNombre))
+                    .build());
+
+            // Guardar ambos en sesión y preguntar si los quiere también por email
             session.setPendingPdfBytes(pdfBytes);
             session.setPendingPdfNombre(pdfNombre);
+            session.setPendingXlsxBytes(xlsxBytes);
+            session.setPendingXlsxNombre(xlsxNombre);
             session.setState(SessionState.ESPERANDO_CONFIRMACION_EMAIL);
 
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
-                    .text("¿Quieres enviártelo también por email?")
+                    .text("¿Quieres enviártelos también por email?")
                     .replyMarkup(crearTecladoEmail())
                     .build());
 
         } catch (Exception e) {
-            log.error("Error generando PDF presupuesto id={}", guardado.getId(), e);
+            log.error("Error generando documentos presupuesto id={}", guardado.getId(), e);
             session.reset();
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("✅ Presupuesto <b>" + guardado.getNumero() + "</b> guardado, " +
-                          "pero no se pudo generar el PDF. Inténtalo de nuevo más tarde.")
+                          "pero no se pudieron generar los documentos. Inténtalo de nuevo más tarde.")
                     .parseMode("HTML")
                     .build());
         }
@@ -213,8 +228,10 @@ public class CallbackHandler {
                                 UserSession session, CallbackQuery callbackQuery)
             throws TelegramApiException {
 
-        byte[] pdfBytes  = session.getPendingPdfBytes();
-        String pdfNombre = session.getPendingPdfNombre();
+        byte[] pdfBytes   = session.getPendingPdfBytes();
+        String pdfNombre  = session.getPendingPdfNombre();
+        byte[] xlsxBytes  = session.getPendingXlsxBytes();
+        String xlsxNombre = session.getPendingXlsxNombre();
         session.reset();
         quitarBotones(bot, callbackQuery);
 
@@ -225,7 +242,7 @@ public class CallbackHandler {
         if (pdfBytes == null || pdfBytes.length == 0) {
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
-                    .text("No encontré el PDF. Descárgalo desde el mensaje anterior.")
+                    .text("No encontré los documentos. Descárgalos desde los mensajes anteriores.")
                     .build());
             return;
         }
@@ -264,20 +281,30 @@ public class CallbackHandler {
                     .replace(".pdf", "")
                     .replace("presupuesto_", "")
                     .replace("-", "/");
-            String cuerpo = "Hola,\n\nAdjuntamos el presupuesto generado con TuGestorAI.\n\n" +
-                            "Saludos,\nTuGestorAI";
+            String cuerpo = "Hola,\n\nAdjuntamos el presupuesto generado con TuGestorAI " +
+                            "(PDF y Excel).\n\nSaludos,\nTuGestorAI";
 
-            emailService.enviarConAdjunto(usuario.getEmail(), asunto, cuerpo, pdfBytes, nombre);
+            if (xlsxBytes != null && xlsxBytes.length > 0) {
+                String xlsxNombreFinal = xlsxNombre != null ? xlsxNombre : "presupuesto.xlsx";
+                emailService.enviarConAdjuntos(usuario.getEmail(), asunto, cuerpo,
+                        new EmailService.Adjunto(pdfBytes, "application/pdf", nombre),
+                        new EmailService.Adjunto(xlsxBytes,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                xlsxNombreFinal));
+            } else {
+                emailService.enviarConAdjunto(usuario.getEmail(), asunto, cuerpo, pdfBytes, nombre);
+            }
+
             rateLimiter.registrarEmail(telegramId);
 
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
-                    .text("✉️ Presupuesto enviado a <b>" + usuario.getEmail() + "</b>.")
+                    .text("✉️ Presupuesto enviado a <b>" + usuario.getEmail() + "</b> (PDF + Excel).")
                     .parseMode("HTML")
                     .build());
 
-            log.info("Presupuesto enviado por email a {} (fichero: {})",
-                    usuario.getEmail(), nombre);
+            log.info("Presupuesto enviado por email a {} (PDF: {}, Excel: {})",
+                    usuario.getEmail(), nombre, xlsxNombre);
 
         } catch (ServiceException e) {
             log.error("Error enviando email a {}: {}", usuario.getEmail(), e.getMessage());

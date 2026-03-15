@@ -65,7 +65,7 @@ public class VoiceHandler {
         // 2. Validar metadatos del audio ANTES de descargarlo
         Voice voice = message.getVoice();
         int duracion = voice.getDuration()  != null ? voice.getDuration()  : 0;
-        int tamano   = voice.getFileSize()  != null ? voice.getFileSize()  : 0;
+        int tamano   = voice.getFileSize()  != null ? voice.getFileSize().intValue()  : 0;
 
         RateLimiter.Resultado resultado = rateLimiter.comprobarAudio(telegramId, duracion, tamano);
         if (resultado != RateLimiter.Resultado.OK) {

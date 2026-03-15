@@ -18,6 +18,10 @@ public class UserSession {
     private byte[] pendingPdfBytes;
     /** Nombre del fichero PDF pendiente (ej: {@code presupuesto_P-2026-0001.pdf}). */
     private String pendingPdfNombre;
+    /** Bytes del Excel (.xlsx) pendiente de enviar por email. */
+    private byte[] pendingXlsxBytes;
+    /** Nombre del fichero Excel pendiente (ej: {@code presupuesto_P-2026-0001.xlsx}). */
+    private String pendingXlsxNombre;
     private Instant lastActivity = Instant.now();
 
     public UserSession(long chatId) {
@@ -36,6 +40,8 @@ public class UserSession {
         this.transcripcion = null;
         this.pendingPdfBytes = null;
         this.pendingPdfNombre = null;
+        this.pendingXlsxBytes = null;
+        this.pendingXlsxNombre = null;
         touch();
     }
 
@@ -68,6 +74,18 @@ public class UserSession {
     public String getPendingPdfNombre() { return pendingPdfNombre; }
     public void setPendingPdfNombre(String pendingPdfNombre) {
         this.pendingPdfNombre = pendingPdfNombre;
+        touch();
+    }
+
+    public byte[] getPendingXlsxBytes() { return pendingXlsxBytes; }
+    public void setPendingXlsxBytes(byte[] pendingXlsxBytes) {
+        this.pendingXlsxBytes = pendingXlsxBytes;
+        touch();
+    }
+
+    public String getPendingXlsxNombre() { return pendingXlsxNombre; }
+    public void setPendingXlsxNombre(String pendingXlsxNombre) {
+        this.pendingXlsxNombre = pendingXlsxNombre;
         touch();
     }
 
