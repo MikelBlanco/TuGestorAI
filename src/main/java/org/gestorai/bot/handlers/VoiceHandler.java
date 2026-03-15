@@ -24,6 +24,9 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Optional;
 
@@ -84,9 +87,10 @@ public class VoiceHandler {
             Voice voice = message.getVoice();
             GetFile getFileReq = new GetFile(voice.getFileId());
             org.telegram.telegrambots.meta.api.objects.File tgFile = bot.execute(getFileReq);
-            File audioFile = bot.downloadFile(tgFile);
+            File audioDescargado = bot.downloadFile(tgFile);
+            File audioFile = asegurarExtensionOgg(audioDescargado);
 
-            log.info("Audio descargado para chatId={} fileId={}", chatId, voice.getFileId());
+            log.info("Audio descargado para chatId={} fileId={} path={}", chatId, voice.getFileId(), audioFile.getName());
 
             // Transcribir con Whisper
             String transcripcion = whisperService.transcribe(audioFile);
@@ -110,6 +114,12 @@ public class VoiceHandler {
                     .replyMarkup(crearTecladoConfirmacion())
                     .build());
 
+        } catch (IOException e) {
+            log.error("Error al preparar fichero de audio chatId={}: {}", chatId, e.getMessage(), e);
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text("⚠️ Error al procesar el fichero de audio. Inténtalo de nuevo.")
+                    .build());
         } catch (ServiceException e) {
             log.error("Error procesando audio chatId={}: {}", chatId, e.getMessage());
             bot.execute(SendMessage.builder()
@@ -170,5 +180,19 @@ public class VoiceHandler {
 
     private String nvl(String valor) {
         return valor != null ? valor : "—";
+    }
+
+    /**
+     * Si el fichero descargado no tiene extensión .ogg, lo copia a un nuevo fichero
+     * temporal con ese nombre para que Whisper API reconozca el formato correctamente.
+     */
+    private File asegurarExtensionOgg(File fichero) throws IOException {
+        if (fichero.getName().toLowerCase().endsWith(".ogg")) {
+            return fichero;
+        }
+        File ogg = File.createTempFile("audio_tg_", ".ogg");
+        ogg.deleteOnExit();
+        Files.copy(fichero.toPath(), ogg.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        return ogg;
     }
 }

@@ -1,6 +1,24 @@
 -- =============================================
--- TuGestorAI - Esquema de base de datos
+-- TuGestorAI - Creación de base de datos y esquema
 -- PostgreSQL
+--
+-- Ejecutar como superusuario (postgres):
+--   psql -U postgres -f setup_completo.sql
+-- =============================================
+
+-- Crear usuario y base de datos
+CREATE USER tugestorai WITH PASSWORD 'tugestorai';
+CREATE DATABASE tugestorai OWNER tugestorai;
+
+-- Conectar a la base de datos
+\c tugestorai
+
+-- Dar permisos
+GRANT ALL PRIVILEGES ON DATABASE tugestorai TO tugestorai;
+GRANT ALL PRIVILEGES ON SCHEMA public TO tugestorai;
+
+-- =============================================
+-- Esquema de tablas
 -- =============================================
 
 -- Usuarios (autónomos)
@@ -98,12 +116,15 @@ CREATE TABLE lineas_detalle (
 CREATE INDEX idx_lineas_presupuesto ON lineas_detalle(presupuesto_id);
 CREATE INDEX idx_lineas_factura ON lineas_detalle(factura_id);
 
--- Función para actualizar updated_at automáticamente
+-- =============================================
+-- Triggers para updated_at automático
+-- =============================================
+
 CREATE OR REPLACE FUNCTION actualizar_updated_at()
-RETURNS TRIGGER AS $$
+    RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
-RETURN NEW;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -115,3 +136,13 @@ CREATE TRIGGER trg_presupuestos_updated BEFORE UPDATE ON presupuestos
 
 CREATE TRIGGER trg_facturas_updated BEFORE UPDATE ON facturas
     FOR EACH ROW EXECUTE FUNCTION actualizar_updated_at();
+
+-- =============================================
+-- Asignar propiedad de las tablas al usuario
+-- =============================================
+
+ALTER TABLE usuarios OWNER TO tugestorai;
+ALTER TABLE clientes OWNER TO tugestorai;
+ALTER TABLE presupuestos OWNER TO tugestorai;
+ALTER TABLE facturas OWNER TO tugestorai;
+ALTER TABLE lineas_detalle OWNER TO tugestorai;

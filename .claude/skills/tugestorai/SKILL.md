@@ -15,6 +15,11 @@ description: >
   proyecto pero trabaja en archivos o patrones que coincidan con esta arquitectura.
 ---
 
+
+## Idioma
+
+Comunicarse siempre en castellano (español de España).
+
 # TuGestorAI - Skill de Desarrollo
 
 ## Visión del Proyecto
@@ -308,16 +313,24 @@ Consulta el esquema completo en `references/schema.sql`. Usa siempre ese esquema
 
 ## Flujos de Negocio Clave
 
-### Flujo: Audio → Presupuesto PDF
+### Flujo: Audio → Presupuesto PDF (flujo principal)
 
 1. **Recepción**: `VoiceHandler` recibe el audio OGG de Telegram
 2. **Descarga**: Se descarga el fichero de audio vía Telegram API
 3. **Transcripción**: `WhisperService.transcribe(audioFile)` → texto en español
 4. **Estructuración**: `ClaudeService.parsePresupuesto(transcripcion)` → JSON con cliente, conceptos, importes
-5. **Validación**: Bot presenta borrador al usuario con inline keyboard (Confirmar / Editar / Cancelar)
-6. **Persistencia**: `PresupuestoService.crear(datos)` → Guarda en PostgreSQL
-7. **PDF**: `PdfService.generarPresupuesto(presupuesto)` → Fichero PDF
-8. **Envío**: Bot envía PDF al autónomo y opcionalmente al cliente
+5. **Borrador**: Bot presenta borrador formateado en Telegram con inline keyboard:
+    - ✅ Confirmar
+    - ✏️ Editar (fase posterior)
+    - ❌ Cancelar
+6. **Si confirma**:
+   a. `PresupuestoService.crear(datos)` → Guarda en PostgreSQL
+   b. `PdfService.generarPresupuesto(presupuesto)` → Fichero PDF
+   c. Bot envía el PDF como documento por Telegram al autónomo
+   d. Bot pregunta: "¿Quieres enviarlo también por email?" con inline keyboard (Sí / No)
+   e. Si sí → `EmailService.enviar(email, pdf)` → envía al email del autónomo
+7. **Si cancela**: Se descarta el borrador y se vuelve a estado IDLE
+8. **Si edita** (fase posterior): Flujo de corrección por texto/voz
 
 ### Flujo: Presupuesto → Factura
 

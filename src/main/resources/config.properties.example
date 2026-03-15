@@ -9,7 +9,7 @@ openai.api.key=
 
 anthropic.api.key=
 
-pdf.output.dir=
+pdf.output.dir=/ruta/a/directorio/pdfs
 
 # Email (Jakarta Mail / angus-mail)
 # Variables de entorno equivalentes: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER, etc.
