@@ -21,6 +21,13 @@ GRANT ALL PRIVILEGES ON SCHEMA public TO tugestorai;
 -- Esquema de tablas
 -- =============================================
 
+-- Control de acceso: usuarios autorizados a usar el bot
+CREATE TABLE usuarios_autorizados (
+                                      telegram_id BIGINT PRIMARY KEY,
+                                      autorizado_por VARCHAR(200),
+                                      created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Usuarios (autónomos)
 CREATE TABLE usuarios (
                           id BIGSERIAL PRIMARY KEY,
@@ -66,7 +73,6 @@ CREATE TABLE presupuestos (
                               total DECIMAL(10,2),
                               estado VARCHAR(20) DEFAULT 'borrador',
                               audio_transcript TEXT,
-                              pdf_path VARCHAR(500),
                               created_at TIMESTAMP DEFAULT NOW(),
                               updated_at TIMESTAMP,
                               enviado_at TIMESTAMP
@@ -89,7 +95,6 @@ CREATE TABLE facturas (
                           irpf_importe DECIMAL(10,2),
                           total DECIMAL(10,2),
                           estado VARCHAR(20) DEFAULT 'borrador',
-                          pdf_path VARCHAR(500),
                           created_at TIMESTAMP DEFAULT NOW(),
                           updated_at TIMESTAMP
 );
@@ -141,8 +146,15 @@ CREATE TRIGGER trg_facturas_updated BEFORE UPDATE ON facturas
 -- Asignar propiedad de las tablas al usuario
 -- =============================================
 
+ALTER TABLE usuarios_autorizados OWNER TO tugestorai;
 ALTER TABLE usuarios OWNER TO tugestorai;
 ALTER TABLE clientes OWNER TO tugestorai;
 ALTER TABLE presupuestos OWNER TO tugestorai;
 ALTER TABLE facturas OWNER TO tugestorai;
 ALTER TABLE lineas_detalle OWNER TO tugestorai;
+
+-- =============================================
+-- Datos iniciales
+-- =============================================
+
+INSERT INTO usuarios_autorizados (telegram_id, autorizado_por) VALUES (666004366, 'admin');
