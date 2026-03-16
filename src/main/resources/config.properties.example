@@ -9,6 +9,11 @@ openai.api.key=
 
 anthropic.api.key=
 
+# Clave AES-256 para cifrar datos personales en BD.
+# Genera una nueva con: openssl rand -base64 32
+# En producción usa SIEMPRE la variable de entorno CRYPTO_SECRET_KEY
+crypto.secret.key=
+
 pdf.output.dir=/ruta/a/directorio/pdfs
 
 # Email (Jakarta Mail / angus-mail)

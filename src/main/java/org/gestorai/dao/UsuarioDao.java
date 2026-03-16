@@ -2,6 +2,7 @@ package org.gestorai.dao;
 
 import org.gestorai.exception.DaoException;
 import org.gestorai.model.Usuario;
+import org.gestorai.util.CryptoUtil;
 import org.gestorai.util.DbUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,10 +83,10 @@ public class UsuarioDao extends BaseDao {
 
             ps.setLong(1, u.getTelegramId());
             ps.setString(2, u.getNombre());
-            ps.setString(3, u.getNif());
-            ps.setString(4, u.getDireccion());
-            ps.setString(5, u.getTelefono());
-            ps.setString(6, u.getEmail());
+            ps.setString(3, CryptoUtil.encrypt(u.getNif()));
+            ps.setString(4, CryptoUtil.encrypt(u.getDireccion()));
+            ps.setString(5, CryptoUtil.encrypt(u.getTelefono()));
+            ps.setString(6, CryptoUtil.encrypt(u.getEmail()));
             ps.setString(7, u.getNombreComercial());
             ps.setString(8, u.getLogoUrl());
             ps.setString(9, u.getPlan() != null ? u.getPlan() : Usuario.PLAN_FREE);
@@ -125,10 +126,10 @@ public class UsuarioDao extends BaseDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             ps.setString(1, u.getNombre());
-            ps.setString(2, u.getNif());
-            ps.setString(3, u.getDireccion());
-            ps.setString(4, u.getTelefono());
-            ps.setString(5, u.getEmail());
+            ps.setString(2, CryptoUtil.encrypt(u.getNif()));
+            ps.setString(3, CryptoUtil.encrypt(u.getDireccion()));
+            ps.setString(4, CryptoUtil.encrypt(u.getTelefono()));
+            ps.setString(5, CryptoUtil.encrypt(u.getEmail()));
             ps.setString(6, u.getNombreComercial());
             ps.setString(7, u.getLogoUrl());
             ps.setLong(8, u.getId());
@@ -210,10 +211,10 @@ public class UsuarioDao extends BaseDao {
         u.setId(rs.getLong("id"));
         u.setTelegramId(rs.getLong("telegram_id"));
         u.setNombre(rs.getString("nombre"));
-        u.setNif(rs.getString("nif"));
-        u.setDireccion(rs.getString("direccion"));
-        u.setTelefono(rs.getString("telefono"));
-        u.setEmail(rs.getString("email"));
+        u.setNif(CryptoUtil.decrypt(rs.getString("nif")));
+        u.setDireccion(CryptoUtil.decrypt(rs.getString("direccion")));
+        u.setTelefono(CryptoUtil.decrypt(rs.getString("telefono")));
+        u.setEmail(CryptoUtil.decrypt(rs.getString("email")));
         u.setNombreComercial(rs.getString("nombre_comercial"));
         u.setLogoUrl(rs.getString("logo_url"));
         u.setPlan(rs.getString("plan"));

@@ -3,6 +3,7 @@ package org.gestorai.dao;
 import org.gestorai.exception.DaoException;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Presupuesto;
+import org.gestorai.util.CryptoUtil;
 import org.gestorai.util.DbUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -178,7 +179,7 @@ public class PresupuestoDao extends BaseDao {
                     ps.setBigDecimal(8, p.getIvaImporte());
                     ps.setBigDecimal(9, p.getTotal());
                     ps.setString(10, p.getEstado() != null ? p.getEstado() : Presupuesto.ESTADO_BORRADOR);
-                    ps.setString(11, p.getAudioTranscript());
+                    ps.setString(11, CryptoUtil.encrypt(p.getAudioTranscript()));
 
                     try (ResultSet rs = ps.executeQuery()) {
                         rs.next();
@@ -345,7 +346,7 @@ public class PresupuestoDao extends BaseDao {
         p.setIvaImporte(rs.getBigDecimal("iva_importe"));
         p.setTotal(rs.getBigDecimal("total"));
         p.setEstado(rs.getString("estado"));
-        p.setAudioTranscript(rs.getString("audio_transcript"));
+        p.setAudioTranscript(CryptoUtil.decrypt(rs.getString("audio_transcript")));
 
         Timestamp createdAt = rs.getTimestamp("created_at");
         if (createdAt != null) p.setCreatedAt(createdAt.toLocalDateTime());
