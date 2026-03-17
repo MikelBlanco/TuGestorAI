@@ -10,6 +10,7 @@ import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Usuario;
 import org.gestorai.service.ClaudeService;
+import org.gestorai.util.ConfigUtil;
 import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,7 @@ public class TextHandler {
 
     public void handle(TuGestorBot bot, Message message) throws TelegramApiException {
         long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
         String texto = message.getText().trim();
         UserSession session = sessionManager.getOrCreate(chatId);
 
@@ -53,6 +55,10 @@ public class TextHandler {
 
         // Texto libre según el estado actual de la sesión
         switch (session.getState()) {
+            case PENDIENTE_CONSENTIMIENTO -> enviarMensaje(bot, chatId,
+                    "Por favor, acepta o rechaza los términos usando los botones de arriba.");
+            case EDITANDO           -> procesarCorreccion(bot, chatId, telegramId,
+                                            message.getText().trim(), session);
             case REGISTRO_NOMBRE    -> procesarRegistroNombre(bot, message, session);
             case REGISTRO_NIF       -> procesarRegistroNif(bot, message, session);
             case REGISTRO_DIRECCION -> procesarRegistroDireccion(bot, message, session);
@@ -202,10 +208,41 @@ public class TextHandler {
             return;
         }
 
-        session.setState(SessionState.REGISTRO_NOMBRE);
-        enviarMensaje(bot, chatId,
-                "¡Hola! Soy TuGestorAI, tu asistente para presupuestos y facturas.\n\n" +
-                "Para empezar, ¿cuál es tu nombre o el de tu negocio?");
+        // Aviso de privacidad obligatorio (RGPD) antes de iniciar el registro
+        session.setState(SessionState.PENDIENTE_CONSENTIMIENTO);
+        bot.execute(SendMessage.builder()
+                .chatId(chatId)
+                .text("""
+                        ¡Hola! Soy <b>TuGestorAI</b>, tu asistente para presupuestos y facturas.
+
+                        ℹ️ <b>Antes de continuar, necesito informarte:</b>
+
+                        • Tus mensajes de voz se envían a servicios de IA externos (OpenAI Whisper) \
+                        para transcribirlos. <b>No se almacenan tras el procesamiento.</b>
+                        • Tus datos fiscales (nombre, NIF, dirección) se guardan <b>cifrados</b> \
+                        en nuestra base de datos.
+                        • Solo tú tienes acceso a tus datos y documentos.
+
+                        ¿Aceptas el tratamiento de tus datos según lo descrito?
+                        """)
+                .parseMode("HTML")
+                .replyMarkup(crearTecladoConsentimiento())
+                .build());
+    }
+
+    private InlineKeyboardMarkup crearTecladoConsentimiento() {
+        return InlineKeyboardMarkup.builder()
+                .keyboardRow(List.of(
+                        InlineKeyboardButton.builder()
+                                .text("✅ Acepto")
+                                .callbackData("rgpd_acepto")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("❌ No acepto")
+                                .callbackData("rgpd_rechazo")
+                                .build()
+                ))
+                .build();
     }
 
     private void enviarAyuda(TuGestorBot bot, long chatId) throws TelegramApiException {
@@ -348,6 +385,90 @@ public class TextHandler {
         enviarMensaje(bot, chatId, String.format(
                 "¡Registrado, %s! Ya puedes enviarme audios o escribirme los datos de tus presupuestos.\n\n" +
                 "Usa /ayuda para ver cómo funciona.", nombre));
+    }
+
+    // -------------------------------------------------------------------------
+    // Flujo de edición
+    // -------------------------------------------------------------------------
+
+    /**
+     * Procesa una corrección en lenguaje natural sobre el borrador actual.
+     * Llamado tanto desde texto ({@link TextHandler}) como desde audio ({@link VoiceHandler}).
+     */
+    void procesarCorreccion(TuGestorBot bot, long chatId, long telegramId,
+                            String correccion, UserSession session)
+            throws TelegramApiException {
+
+        int maxEdiciones = leerMaxEdiciones();
+
+        if (session.getContadorEdiciones() >= maxEdiciones) {
+            session.reset();
+            enviarMensaje(bot, chatId, String.format(
+                    "Has alcanzado el límite de %d ediciones. El presupuesto ha sido cancelado.\n\n" +
+                    "Envía un nuevo audio o escribe los datos para empezar de nuevo.", maxEdiciones));
+            return;
+        }
+
+        // Las ediciones cuentan como peticiones (rate limit compartido)
+        RateLimiter.Resultado limitado = rateLimiter.comprobarTexto(telegramId);
+        if (limitado != RateLimiter.Resultado.OK) {
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(mensajeLimiteTexto(limitado))
+                    .parseMode("HTML")
+                    .build());
+            return;
+        }
+
+        bot.execute(SendChatAction.builder()
+                .chatId(chatId)
+                .action(ActionType.TYPING.toString())
+                .build());
+
+        try {
+            DatosPresupuesto actualizado = claudeService.editarPresupuesto(
+                    session.getBorradorPresupuesto(), correccion);
+
+            session.incrementarEdiciones();
+            rateLimiter.registrarTexto(telegramId);
+            session.setBorradorPresupuesto(actualizado);
+            session.setState(SessionState.ESPERANDO_CONFIRMACION);
+
+            log.info("Borrador editado chatId={} edicion={}/{}", chatId,
+                    session.getContadorEdiciones(), maxEdiciones);
+
+            // Avisar sobre ediciones restantes si quedan pocas
+            int restantes = maxEdiciones - session.getContadorEdiciones();
+            String notaEdiciones = restantes <= 2
+                    ? String.format("\n\n<i>%d edición%s restante%s.</i>",
+                            restantes,
+                            restantes == 1 ? "" : "es",
+                            restantes == 1 ? "" : "s")
+                    : "";
+
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(formatearBorrador(actualizado) + notaEdiciones)
+                    .parseMode("HTML")
+                    .replyMarkup(crearTecladoConfirmacion())
+                    .build());
+
+        } catch (ServiceException e) {
+            log.error("Error editando borrador chatId={}: {}", chatId, e.getMessage());
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo con otra descripción.")
+                    .build());
+        }
+    }
+
+    private int leerMaxEdiciones() {
+        try {
+            String val = ConfigUtil.get("limit.edits.per.presupuesto");
+            return (val != null) ? Integer.parseInt(val.trim()) : 5;
+        } catch (NumberFormatException e) {
+            return 5;
+        }
     }
 
     // -------------------------------------------------------------------------

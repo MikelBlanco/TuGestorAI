@@ -14,8 +14,11 @@ public enum SessionState {
     /** El usuario está editando un campo del presupuesto. */
     EDITANDO,
 
-    /** El presupuesto ha sido confirmado y se espera la respuesta sobre envío por email. */
-    ESPERANDO_CONFIRMACION_EMAIL,
+    /** El presupuesto ha sido confirmado y se espera que el usuario elija cómo recibir los documentos. */
+    ESPERANDO_OPCION_ENVIO,
+
+    /** El usuario debe aceptar el aviso de privacidad (RGPD) antes de registrarse. */
+    PENDIENTE_CONSENTIMIENTO,
 
     /** Se está recogiendo el nombre del cliente durante /start. */
     REGISTRO_NOMBRE,

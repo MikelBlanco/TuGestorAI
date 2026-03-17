@@ -42,9 +42,16 @@ limit.requests.per.day=30
 # Máximo de reintentos al llamar a Claude API si devuelve JSON inválido
 limit.claude.max.retries=1
 
+# Máximo de ediciones que el autónomo puede hacer sobre un borrador antes de confirmarlo
+limit.edits.per.presupuesto=5
+
 # Máximo de emails que un usuario puede recibir por día
 limit.email.per.day=20
 
 # Tope de coste diario global en euros. A €0,007 por audio y €0,001 por texto.
 # Defecto: 3.00 € ≈ 428 audios de 1 min
 limit.cost.daily.max=3.00
+
+# Segundos tras los que se borran automáticamente los mensajes con documentos en Telegram.
+# Defecto: 300 = 5 minutos
+limit.telegram.doc.ttl=300

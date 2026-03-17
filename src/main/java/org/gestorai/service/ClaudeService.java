@@ -77,13 +77,13 @@ public class ClaudeService {
      * @throws ServiceException si la API falla o el JSON sigue siendo inválido tras el reintento
      */
     public DatosPresupuesto parsePresupuesto(String transcripcion) {
-        String respuestaJson = llamarApi(transcripcion);
+        String mensajeUsuario = "Transcripción del audio del autónomo:\n\n" + transcripcion;
+        String respuestaJson = llamarApi(mensajeUsuario);
         try {
             return convertir(respuestaJson);
         } catch (JsonParseException e) {
             log.warn("JSON inválido en primer intento, reintentando. Respuesta: {}", respuestaJson);
-            // Reintento único
-            respuestaJson = llamarApi(transcripcion);
+            respuestaJson = llamarApi(mensajeUsuario);
             try {
                 return convertir(respuestaJson);
             } catch (JsonParseException e2) {
@@ -94,18 +94,43 @@ public class ClaudeService {
         }
     }
 
+    /**
+     * Aplica una corrección en lenguaje natural al borrador actual y devuelve el borrador actualizado.
+     * Reintenta una vez si el JSON de respuesta no es válido.
+     *
+     * @param borrador   datos actuales del presupuesto en borrador
+     * @param correccion texto libre con la corrección del autónomo
+     * @return borrador actualizado
+     */
+    public DatosPresupuesto editarPresupuesto(DatosPresupuesto borrador, String correccion) {
+        String mensajeUsuario = buildPromptEdicion(borrador, correccion);
+        String respuestaJson = llamarApi(mensajeUsuario);
+        try {
+            return convertir(respuestaJson);
+        } catch (JsonParseException e) {
+            log.warn("JSON inválido en edición, reintentando.");
+            respuestaJson = llamarApi(mensajeUsuario);
+            try {
+                return convertir(respuestaJson);
+            } catch (JsonParseException e2) {
+                log.error("JSON inválido en edición tras reintento: {}", respuestaJson);
+                throw new ServiceException(
+                        "No pude aplicar la corrección. Intenta describirla de otra forma.");
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Helpers privados
     // -------------------------------------------------------------------------
 
-    private String llamarApi(String transcripcion) {
+    private String llamarApi(String mensajeUsuario) {
         String requestBody = gson.toJson(Map.of(
                 "model", MODELO,
                 "max_tokens", 1024,
                 "system", SYSTEM_PROMPT,
                 "messages", List.of(
-                        Map.of("role", "user", "content",
-                                "Transcripción del audio del autónomo:\n\n" + transcripcion)
+                        Map.of("role", "user", "content", mensajeUsuario)
                 )
         ));
 
@@ -141,6 +166,29 @@ public class ClaudeService {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new ServiceException("Error comunicando con Claude API", e);
         }
+    }
+
+    private String buildPromptEdicion(DatosPresupuesto borrador, String correccion) {
+        StringBuilder sb = new StringBuilder("Borrador actual del presupuesto:\n");
+        sb.append("- Cliente: ").append(borrador.getClienteNombre() != null ? borrador.getClienteNombre() : "—").append("\n");
+        if (borrador.getDescripcion() != null) {
+            sb.append("- Descripción: ").append(borrador.getDescripcion()).append("\n");
+        }
+        if (!borrador.getLineas().isEmpty()) {
+            sb.append("- Conceptos:\n");
+            for (LineaDetalle l : borrador.getLineas()) {
+                sb.append(String.format("  * %s (%s): %s x %.2f€ = %.2f€\n",
+                        l.getConcepto(), l.getTipo(),
+                        l.getCantidad().stripTrailingZeros().toPlainString(),
+                        l.getPrecioUnitario(), l.getImporte()));
+            }
+        }
+        sb.append(String.format("- IVA: %s%%\n",
+                borrador.getIvaPorcentaje().stripTrailingZeros().toPlainString()));
+        sb.append(String.format("- Total: %.2f€\n", borrador.calcularTotal()));
+        sb.append("\nCorrección del autónomo: ").append(correccion);
+        sb.append("\n\nAplica la corrección y devuelve el presupuesto actualizado en el formato JSON indicado.");
+        return sb.toString();
     }
 
     /**

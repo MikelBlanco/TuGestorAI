@@ -22,6 +22,8 @@ public class UserSession {
     private byte[] pendingXlsxBytes;
     /** Nombre del fichero Excel pendiente (ej: {@code presupuesto_P-2026-0001.xlsx}). */
     private String pendingXlsxNombre;
+    /** Número de ediciones realizadas sobre el borrador actual. */
+    private int contadorEdiciones;
     private Instant lastActivity = Instant.now();
 
     public UserSession(long chatId) {
@@ -42,6 +44,7 @@ public class UserSession {
         this.pendingPdfNombre = null;
         this.pendingXlsxBytes = null;
         this.pendingXlsxNombre = null;
+        this.contadorEdiciones = 0;
         touch();
     }
 
@@ -88,6 +91,10 @@ public class UserSession {
         this.pendingXlsxNombre = pendingXlsxNombre;
         touch();
     }
+
+    public int getContadorEdiciones() { return contadorEdiciones; }
+    public void incrementarEdiciones() { this.contadorEdiciones++; touch(); }
+    public void resetContadorEdiciones() { this.contadorEdiciones = 0; }
 
     public Instant getLastActivity() { return lastActivity; }
 }

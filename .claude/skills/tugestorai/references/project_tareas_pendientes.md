@@ -24,7 +24,7 @@ Commit: `f9a8fc5`
 
 ---
 
-## Tarea 2 — Borrado del audio tras transcripción 🔴 PENDIENTE (ALTA)
+## Tarea 2 — Borrado del audio tras transcripción ✅ COMPLETADA (2026-03-17)
 
 **Qué:** El fichero `.ogg` descargado de Telegram se guarda en un directorio temporal y nunca se borra explícitamente tras llamar a `whisperService.transcribe()`.
 
@@ -34,7 +34,7 @@ Commit: `f9a8fc5`
 
 ---
 
-## Tarea 3 — Borrado automático de documentos en Telegram (5 min) 🔴 PENDIENTE (ALTA)
+## Tarea 3 — Borrado automático de documentos en Telegram (5 min) ✅ COMPLETADA (2026-03-17)
 
 **Qué:** Al enviar PDF/Excel por Telegram, programar el borrado de esos mensajes transcurridos 5 minutos con `deleteMessage()`. Avisar al usuario: "⚠️ Por seguridad, los documentos se eliminarán del chat en 5 minutos."
 
@@ -44,7 +44,7 @@ Commit: `f9a8fc5`
 
 ---
 
-## Tarea 4 — Reemplazo del borrador tras confirmar/cancelar 🟡 PENDIENTE (MEDIA)
+## Tarea 4 — Reemplazo del borrador tras confirmar/cancelar ✅ COMPLETADA (2026-03-17)
 
 **Qué:** Tras confirmar o cancelar, editar el mensaje original del borrador con `EditMessageText` para reemplazarlo por un resumen breve:
 - Si confirmó: "✅ Presupuesto P-2026-0001 generado (484,00€)"
@@ -56,7 +56,7 @@ Commit: `f9a8fc5`
 
 ---
 
-## Tarea 5 — Opciones de envío: Telegram / Email / Ambos 🟡 PENDIENTE (MEDIA)
+## Tarea 5 — Opciones de envío: Telegram / Email / Ambos ✅ COMPLETADA (2026-03-17)
 
 **Qué:** Al confirmar un presupuesto, en lugar de enviar siempre por Telegram y luego preguntar por email, preguntar primero:
 "¿Cómo quieres recibir los documentos?"
@@ -68,7 +68,7 @@ Commit: `f9a8fc5`
 
 ---
 
-## Tarea 6 — Consentimiento RGPD en /start 🟡 PENDIENTE (MEDIA)
+## Tarea 6 — Consentimiento RGPD en /start ✅ COMPLETADA (2026-03-17)
 
 **Qué:** En el flujo de `/start`, antes de iniciar el registro, mostrar:
 "ℹ️ Tus audios se procesan mediante servicios de IA externos para generar los presupuestos. No se almacenan los audios tras el procesamiento. Tus datos fiscales se guardan cifrados en nuestra base de datos."
@@ -79,7 +79,7 @@ El usuario debe aceptar con inline keyboard (✅ Acepto / ❌ No acepto) antes d
 
 ---
 
-## Tarea 7 — Flujo de edición completo 🟢 PENDIENTE (BAJA)
+## Tarea 7 — Flujo de edición completo ✅ COMPLETADA (2026-03-17)
 
 **Qué:** El estado `EDITANDO` existe en `SessionState` y `CallbackHandler.iniciarEdicion()` solo muestra "próximamente". Implementar el flujo completo:
 
@@ -91,3 +91,15 @@ El usuario debe aceptar con inline keyboard (✅ Acepto / ❌ No acepto) antes d
 6. Límite: 5 ediciones por presupuesto (`limit.edits.per.presupuesto`)
 
 **Dónde:** `CallbackHandler.java` (iniciar edición), `TextHandler.java` (manejar estado EDITANDO), `VoiceHandler.java` (manejar estado EDITANDO), `ClaudeService.java` (nuevo método `editarPresupuesto(borradorJson, correccion)`).
+
+---
+
+## Tarea 8 — Rellenar config de producción 🟡 PENDIENTE (MEDIA)
+
+**Qué:** `src/main/profiles/prod/config.properties` actualmente tiene los mismos valores que dev. Hay que rellenarlo con los datos reales del VPS: URL de BD de producción, token del bot de producción, claves API de producción y clave de cifrado distinta a la de dev.
+
+**Dónde:** `src/main/profiles/prod/config.properties`
+
+**Nota:** Los perfiles Maven ya están configurados en `pom.xml` (commit: 2026-03-17). Uso: `mvn package -Pprod`.
+
+**Por qué:** Sin esto, el WAR de producción lleva credenciales de desarrollo.

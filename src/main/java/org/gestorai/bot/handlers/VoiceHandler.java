@@ -79,8 +79,10 @@ public class VoiceHandler {
             return;
         }
 
-        // 3. Verificar límite del plan freemium
-        if (!usuario.puedeCrearPresupuesto()) {
+        // 3. Verificar límite del plan freemium (no aplica cuando se está editando un borrador)
+        UserSession session = sessionManager.getOrCreate(chatId);
+        boolean esEdicion = session.getState() == SessionState.EDITANDO;
+        if (!esEdicion && !usuario.puedeCrearPresupuesto()) {
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text(String.format(
@@ -99,7 +101,8 @@ public class VoiceHandler {
 
         bot.execute(SendMessage.builder()
                 .chatId(chatId)
-                .text("Procesando tu audio... un momento.")
+                .text(esEdicion ? "Procesando tu corrección... un momento."
+                                : "Procesando tu audio... un momento.")
                 .build());
 
         try {
@@ -112,29 +115,41 @@ public class VoiceHandler {
             log.info("Audio descargado para chatId={} fileId={} path={} duracion={}s tamano={}B",
                     chatId, voice.getFileId(), audioFile.getName(), duracion, tamano);
 
-            // 6. Transcribir con Whisper
-            String transcripcion = whisperService.transcribe(audioFile);
-            log.info("Transcripción obtenida chatId={}: {}", chatId, transcripcion);
+            // 6. Transcribir con Whisper y borrar audio INMEDIATAMENTE (dato personal)
+            String transcripcion;
+            try {
+                transcripcion = whisperService.transcribe(audioFile);
+                log.info("Transcripción obtenida chatId={}", chatId);
+            } finally {
+                borrarAudio(audioFile);
+                if (!audioFile.equals(audioDescargado)) {
+                    borrarAudio(audioDescargado);
+                }
+            }
 
-            // 7. Estructurar con Claude
-            DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
+            if (esEdicion) {
+                // 7a. Flujo de edición: delegar al TextHandler que tiene la lógica compartida
+                new TextHandler().procesarCorreccion(bot, chatId, telegramId, transcripcion, session);
+            } else {
+                // 7b. Flujo normal: estructurar con Claude y guardar nuevo borrador
+                DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
 
-            // 8. Registrar en los contadores compartidos (procesamiento exitoso)
-            rateLimiter.registrarAudio(telegramId);
+                // 8. Registrar en los contadores compartidos (procesamiento exitoso)
+                rateLimiter.registrarAudio(telegramId);
 
-            // 9. Guardar borrador en sesión
-            UserSession session = sessionManager.getOrCreate(chatId);
-            session.setBorradorPresupuesto(datos);
-            session.setTranscripcion(transcripcion);
-            session.setState(SessionState.ESPERANDO_CONFIRMACION);
+                // 9. Guardar borrador en sesión
+                session.setBorradorPresupuesto(datos);
+                session.setTranscripcion(transcripcion);
+                session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
-            // 10. Presentar borrador con teclado de confirmación
-            bot.execute(SendMessage.builder()
-                    .chatId(chatId)
-                    .text(formatearBorrador(datos))
-                    .parseMode("HTML")
-                    .replyMarkup(crearTecladoConfirmacion())
-                    .build());
+                // 10. Presentar borrador con teclado de confirmación
+                bot.execute(SendMessage.builder()
+                        .chatId(chatId)
+                        .text(formatearBorrador(datos))
+                        .parseMode("HTML")
+                        .replyMarkup(crearTecladoConfirmacion())
+                        .build());
+            }
 
         } catch (IOException e) {
             log.error("Error al preparar fichero de audio chatId={}: {}", chatId, e.getMessage(), e);
@@ -239,6 +254,21 @@ public class VoiceHandler {
 
     private String nvl(String valor) {
         return valor != null ? valor : "—";
+    }
+
+    /**
+     * Borra el fichero de audio del disco. Se llama inmediatamente tras transcribir
+     * para no retener datos personales (voz del usuario) más de lo necesario.
+     */
+    private void borrarAudio(File fichero) {
+        try {
+            boolean borrado = Files.deleteIfExists(fichero.toPath());
+            if (borrado) {
+                log.debug("Audio temporal borrado: {}", fichero.getName());
+            }
+        } catch (IOException e) {
+            log.warn("No se pudo borrar el audio temporal {}: {}", fichero.getName(), e.getMessage());
+        }
     }
 
     /**

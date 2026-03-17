@@ -23,6 +23,7 @@ public class Usuario {
     private String logoUrl;
     private String plan;
     private int presupuestosMes;
+    private LocalDateTime consentimientoAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -73,6 +74,9 @@ public class Usuario {
 
     public int getPresupuestosMes() { return presupuestosMes; }
     public void setPresupuestosMes(int presupuestosMes) { this.presupuestosMes = presupuestosMes; }
+
+    public LocalDateTime getConsentimientoAt() { return consentimientoAt; }
+    public void setConsentimientoAt(LocalDateTime consentimientoAt) { this.consentimientoAt = consentimientoAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

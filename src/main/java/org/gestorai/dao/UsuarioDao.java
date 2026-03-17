@@ -19,7 +19,8 @@ public class UsuarioDao extends BaseDao {
 
     private static final String SQL_SELECT = """
             SELECT id, telegram_id, nombre, nif, direccion, telefono, email,
-                   nombre_comercial, logo_url, plan, presupuestos_mes, created_at, updated_at
+                   nombre_comercial, logo_url, plan, presupuestos_mes,
+                   consentimiento_at, created_at, updated_at
               FROM usuarios
             """;
 
@@ -74,9 +75,9 @@ public class UsuarioDao extends BaseDao {
         String sql = """
                 INSERT INTO usuarios
                     (telegram_id, nombre, nif, direccion, telefono, email,
-                     nombre_comercial, logo_url, plan, presupuestos_mes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id, created_at
+                     nombre_comercial, logo_url, plan, presupuestos_mes, consentimiento_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                RETURNING id, created_at, consentimiento_at
                 """;
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -96,6 +97,8 @@ public class UsuarioDao extends BaseDao {
                 rs.next();
                 u.setId(rs.getLong("id"));
                 u.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                Timestamp consentAt = rs.getTimestamp("consentimiento_at");
+                if (consentAt != null) u.setConsentimientoAt(consentAt.toLocalDateTime());
             }
 
             log.info("Usuario creado id={} telegramId={}", u.getId(), u.getTelegramId());
@@ -219,6 +222,9 @@ public class UsuarioDao extends BaseDao {
         u.setLogoUrl(rs.getString("logo_url"));
         u.setPlan(rs.getString("plan"));
         u.setPresupuestosMes(rs.getInt("presupuestos_mes"));
+
+        Timestamp consentimientoAt = rs.getTimestamp("consentimiento_at");
+        if (consentimientoAt != null) u.setConsentimientoAt(consentimientoAt.toLocalDateTime());
 
         Timestamp createdAt = rs.getTimestamp("created_at");
         if (createdAt != null) u.setCreatedAt(createdAt.toLocalDateTime());

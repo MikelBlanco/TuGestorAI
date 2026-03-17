@@ -23,9 +23,13 @@ CREATE TABLE usuarios (
     logo_url         VARCHAR(500),
     plan             VARCHAR(20) DEFAULT 'free',
     presupuestos_mes INT DEFAULT 0,
+    consentimiento_at TIMESTAMP,
     created_at       TIMESTAMP DEFAULT NOW(),
     updated_at       TIMESTAMP
 );
+
+-- Migración: añadir columna consentimiento_at si la tabla ya existe
+-- ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS consentimiento_at TIMESTAMP;
 
 -- Clientes del autónomo
 CREATE TABLE clientes (
