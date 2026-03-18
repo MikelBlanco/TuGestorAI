@@ -40,6 +40,8 @@ build/
 
 ### TuGestorAI — ficheros locales con credenciales y datos generados ###
 src/main/resources/config.properties
+src/main/profiles/dev/config.properties
+src/main/profiles/prod/config.properties
 pdfs/
 .idea/
 .claude/settings.local.json
