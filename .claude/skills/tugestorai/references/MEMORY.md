@@ -3,6 +3,7 @@
 ## Índice de memorias
 
 - [`project_tareas_pendientes.md`](project_tareas_pendientes.md) — lista priorizada de tareas (seguridad + UX). Próxima: **Tarea 2** (borrado audio tras transcripción)
+- [`despliegue-vps.md`](despliegue-vps.md) — guía completa de despliegue en VPS (Hetzner CAX11 recomendado)
 
 ## Entorno de compilación
 
