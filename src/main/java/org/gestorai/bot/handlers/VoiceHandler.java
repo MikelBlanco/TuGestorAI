@@ -4,11 +4,12 @@ import org.gestorai.bot.TuGestorBot;
 import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
-import org.gestorai.dao.UsuarioDao;
+import org.gestorai.dao.AutonomoDao;
+import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.model.Autonomo;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
-import org.gestorai.model.Usuario;
 import org.gestorai.service.ClaudeService;
 import org.gestorai.service.WhisperService;
 import org.gestorai.util.RateLimiter;
@@ -34,7 +35,7 @@ import java.util.Optional;
 /**
  * Gestiona los mensajes de voz: valida límites de uso, descarga el audio,
  * lo transcribe con Whisper y estructura los datos con Claude,
- * presentando un borrador al usuario.
+ * presentando un borrador al autónomo.
  */
 public class VoiceHandler {
 
@@ -42,7 +43,8 @@ public class VoiceHandler {
 
     private final WhisperService whisperService = new WhisperService();
     private final ClaudeService claudeService = new ClaudeService();
-    private final UsuarioDao usuarioDao = new UsuarioDao();
+    private final AutonomoDao autonomoDao = new AutonomoDao();
+    private final PresupuestoDao presupuestoDao = new PresupuestoDao();
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
@@ -50,9 +52,9 @@ public class VoiceHandler {
         long chatId = message.getChatId();
         long telegramId = message.getFrom().getId();
 
-        // 1. Verificar que el usuario esté registrado
-        Optional<Usuario> usuarioOpt = usuarioDao.findByTelegramId(telegramId);
-        if (usuarioOpt.isEmpty()) {
+        // 1. Verificar que el autónomo esté registrado
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("Primero debes registrarte. Usa /start para comenzar.")
@@ -60,7 +62,7 @@ public class VoiceHandler {
             return;
         }
 
-        Usuario usuario = usuarioOpt.get();
+        Autonomo autonomo = autonomoOpt.get();
 
         // 2. Validar metadatos del audio ANTES de descargarlo
         Voice voice = message.getVoice();
@@ -79,21 +81,25 @@ public class VoiceHandler {
             return;
         }
 
-        // 3. Verificar límite del plan freemium (no aplica cuando se está editando un borrador)
+        // 3. Verificar límite del plan freemium
         UserSession session = sessionManager.getOrCreate(chatId);
         boolean esEdicion = session.getState() == SessionState.EDITANDO;
-        if (!esEdicion && !usuario.puedeCrearPresupuesto()) {
-            bot.execute(SendMessage.builder()
-                    .chatId(chatId)
-                    .text(String.format(
-                            "Has alcanzado el límite de %d presupuestos este mes con el plan gratuito.\n\n" +
-                            "Usa /plan para ver cómo actualizar a PRO.",
-                            Usuario.LIMITE_PRESUPUESTOS_FREE))
-                    .build());
-            return;
+        if (!esEdicion) {
+            int presupuestosMes = presupuestoDao.contarPorAutonomoEnMes(autonomo.getId());
+            autonomo.setPresupuestosMes(presupuestosMes);
+            if (!autonomo.puedeCrearPresupuesto()) {
+                bot.execute(SendMessage.builder()
+                        .chatId(chatId)
+                        .text(String.format(
+                                "Has alcanzado el límite de %d presupuestos este mes con el plan gratuito.\n\n" +
+                                "Usa /plan para ver cómo actualizar a PRO.",
+                                Autonomo.LIMITE_PRESUPUESTOS_FREE))
+                        .build());
+                return;
+            }
         }
 
-        // 4. Indicar al usuario que estamos procesando
+        // 4. Indicar al autónomo que estamos procesando
         bot.execute(SendChatAction.builder()
                 .chatId(chatId)
                 .action(ActionType.TYPING.toString())
@@ -112,10 +118,10 @@ public class VoiceHandler {
             File audioDescargado = bot.downloadFile(tgFile);
             File audioFile = asegurarExtensionOgg(audioDescargado);
 
-            log.info("Audio descargado para chatId={} fileId={} path={} duracion={}s tamano={}B",
-                    chatId, voice.getFileId(), audioFile.getName(), duracion, tamano);
+            log.info("Audio descargado para chatId={} fileId={} duracion={}s tamano={}B",
+                    chatId, voice.getFileId(), duracion, tamano);
 
-            // 6. Transcribir con Whisper y borrar audio INMEDIATAMENTE (dato personal)
+            // 6. Transcribir con Whisper y borrar audio INMEDIATAMENTE
             String transcripcion;
             try {
                 transcripcion = whisperService.transcribe(audioFile);
@@ -128,21 +134,18 @@ public class VoiceHandler {
             }
 
             if (esEdicion) {
-                // 7a. Flujo de edición: delegar al TextHandler que tiene la lógica compartida
+                // 7a. Flujo de edición
                 new TextHandler().procesarCorreccion(bot, chatId, telegramId, transcripcion, session);
             } else {
-                // 7b. Flujo normal: estructurar con Claude y guardar nuevo borrador
+                // 7b. Flujo normal
                 DatosPresupuesto datos = claudeService.parsePresupuesto(transcripcion);
 
-                // 8. Registrar en los contadores compartidos (procesamiento exitoso)
                 rateLimiter.registrarAudio(telegramId);
 
-                // 9. Guardar borrador en sesión
                 session.setBorradorPresupuesto(datos);
                 session.setTranscripcion(transcripcion);
                 session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
-                // 10. Presentar borrador con teclado de confirmación
                 bot.execute(SendMessage.builder()
                         .chatId(chatId)
                         .text(formatearBorrador(datos))
@@ -257,28 +260,23 @@ public class VoiceHandler {
     }
 
     /**
-     * Borra el fichero de audio del disco. Se llama inmediatamente tras transcribir
-     * para no retener datos personales (voz del usuario) más de lo necesario.
+     * Borra el fichero de audio del disco inmediatamente tras transcribir.
      */
     private void borrarAudio(File fichero) {
         try {
             boolean borrado = Files.deleteIfExists(fichero.toPath());
-            if (borrado) {
-                log.debug("Audio temporal borrado: {}", fichero.getName());
-            }
+            if (borrado) log.debug("Audio temporal borrado: {}", fichero.getName());
         } catch (IOException e) {
             log.warn("No se pudo borrar el audio temporal {}: {}", fichero.getName(), e.getMessage());
         }
     }
 
     /**
-     * Si el fichero descargado no tiene extensión .ogg, lo copia a un nuevo fichero
-     * temporal con ese nombre para que Whisper API reconozca el formato correctamente.
+     * Si el fichero descargado no tiene extensión .ogg, lo copia con esa extensión
+     * para que Whisper API reconozca el formato correctamente.
      */
     private File asegurarExtensionOgg(File fichero) throws IOException {
-        if (fichero.getName().toLowerCase().endsWith(".ogg")) {
-            return fichero;
-        }
+        if (fichero.getName().toLowerCase().endsWith(".ogg")) return fichero;
         File ogg = File.createTempFile("audio_tg_", ".ogg");
         ogg.deleteOnExit();
         Files.copy(fichero.toPath(), ogg.toPath(), StandardCopyOption.REPLACE_EXISTING);

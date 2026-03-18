@@ -4,11 +4,12 @@ import org.gestorai.bot.TuGestorBot;
 import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
-import org.gestorai.dao.UsuarioDao;
+import org.gestorai.dao.AutonomoDao;
+import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.model.Autonomo;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
-import org.gestorai.model.Usuario;
 import org.gestorai.service.ClaudeService;
 import org.gestorai.util.ConfigUtil;
 import org.gestorai.util.RateLimiter;
@@ -28,7 +29,7 @@ import java.util.Optional;
 /**
  * Gestiona los mensajes de texto y comandos del bot.
  *
- * <p>Si el usuario envía texto libre (no comando) estando en estado {@link SessionState#IDLE},
+ * <p>Si el autónomo envía texto libre (no comando) estando en estado {@link SessionState#IDLE},
  * se interpreta como un presupuesto dictado por escrito y se procesa directamente con
  * Claude, sin pasar por Whisper. El contador de rate limit es compartido con los audios.</p>
  */
@@ -36,7 +37,8 @@ public class TextHandler {
 
     private static final Logger log = LoggerFactory.getLogger(TextHandler.class);
 
-    private final UsuarioDao usuarioDao = new UsuarioDao();
+    private final AutonomoDao autonomoDao = new AutonomoDao();
+    private final PresupuestoDao presupuestoDao = new PresupuestoDao();
     private final ClaudeService claudeService = new ClaudeService();
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final RateLimiter rateLimiter = RateLimiter.getInstance();
@@ -47,13 +49,11 @@ public class TextHandler {
         String texto = message.getText().trim();
         UserSession session = sessionManager.getOrCreate(chatId);
 
-        // Comandos tienen prioridad sobre el estado de sesión
         if (texto.startsWith("/")) {
             manejarComando(bot, message, session);
             return;
         }
 
-        // Texto libre según el estado actual de la sesión
         switch (session.getState()) {
             case PENDIENTE_CONSENTIMIENTO -> enviarMensaje(bot, chatId,
                     "Por favor, acepta o rechaza los términos usando los botones de arriba.");
@@ -78,16 +78,14 @@ public class TextHandler {
         long chatId = message.getChatId();
         long telegramId = message.getFrom().getId();
 
-        // Verificar registro
-        Optional<Usuario> usuarioOpt = usuarioDao.findByTelegramId(telegramId);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
             enviarMensaje(bot, chatId, "Primero debes registrarte. Usa /start para comenzar.");
             return;
         }
 
-        Usuario usuario = usuarioOpt.get();
+        Autonomo autonomo = autonomoOpt.get();
 
-        // Verificar rate limit (contador compartido con audios)
         RateLimiter.Resultado limitado = rateLimiter.comprobarTexto(telegramId);
         if (limitado != RateLimiter.Resultado.OK) {
             bot.execute(SendMessage.builder()
@@ -99,18 +97,19 @@ public class TextHandler {
             return;
         }
 
-        // Verificar límite del plan freemium
-        if (!usuario.puedeCrearPresupuesto()) {
+        // Verificar límite del plan freemium (contar desde BD)
+        int presupuestosMes = presupuestoDao.contarPorAutonomoEnMes(autonomo.getId());
+        autonomo.setPresupuestosMes(presupuestosMes);
+        if (!autonomo.puedeCrearPresupuesto()) {
             enviarMensaje(bot, chatId, String.format(
                     "Has alcanzado el límite de %d presupuestos este mes con el plan gratuito.\n\n" +
                     "Usa /plan para ver cómo actualizar a PRO.",
-                    Usuario.LIMITE_PRESUPUESTOS_FREE));
+                    Autonomo.LIMITE_PRESUPUESTOS_FREE));
             return;
         }
 
         String textoPresupuesto = message.getText().trim();
 
-        // Indicar al usuario que estamos procesando
         bot.execute(SendChatAction.builder()
                 .chatId(chatId)
                 .action(ActionType.TYPING.toString())
@@ -125,10 +124,8 @@ public class TextHandler {
             DatosPresupuesto datos = claudeService.parsePresupuesto(textoPresupuesto);
             log.info("Presupuesto por texto procesado chatId={}", chatId);
 
-            // Registrar en los contadores compartidos (procesamiento exitoso)
             rateLimiter.registrarTexto(telegramId);
 
-            // Guardar borrador en sesión (el texto original hace las veces de transcripción)
             session.setBorradorPresupuesto(datos);
             session.setTranscripcion(textoPresupuesto);
             session.setState(SessionState.ESPERANDO_CONFIRMACION);
@@ -150,7 +147,7 @@ public class TextHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Mensajes de límite (texto — no incluye DURACION_EXCEDIDA ni TAMANO_EXCEDIDO)
+    // Mensajes de límite
     // -------------------------------------------------------------------------
 
     private String mensajeLimiteTexto(RateLimiter.Resultado resultado) {
@@ -199,7 +196,7 @@ public class TextHandler {
         long chatId = message.getChatId();
         long telegramId = message.getFrom().getId();
 
-        Optional<Usuario> existente = usuarioDao.findByTelegramId(telegramId);
+        Optional<Autonomo> existente = autonomoDao.findByTelegramId(telegramId);
         if (existente.isPresent()) {
             enviarMensaje(bot, chatId, String.format(
                     "¡Bienvenido de nuevo, %s! Envíame un audio o escribe los datos del presupuesto, " +
@@ -208,7 +205,6 @@ public class TextHandler {
             return;
         }
 
-        // Aviso de privacidad obligatorio (RGPD) antes de iniciar el registro
         session.setState(SessionState.PENDIENTE_CONSENTIMIENTO);
         bot.execute(SendMessage.builder()
                 .chatId(chatId)
@@ -268,8 +264,8 @@ public class TextHandler {
         long chatId = message.getChatId();
         long telegramId = message.getFrom().getId();
 
-        usuarioDao.findByTelegramId(telegramId).ifPresentOrElse(
-                u -> {
+        autonomoDao.findByTelegramId(telegramId).ifPresentOrElse(
+                a -> {
                     String perfil = String.format("""
                             <b>Tus datos fiscales:</b>
 
@@ -280,12 +276,12 @@ public class TextHandler {
                             📞 Teléfono: %s
                             📧 Email: %s
                             """,
-                            nvl(u.getNombre()),
-                            nvl(u.getNombreComercial()),
-                            nvl(u.getNif()),
-                            nvl(u.getDireccion()),
-                            nvl(u.getTelefono()),
-                            nvl(u.getEmail()));
+                            nvl(a.getNombre()),
+                            nvl(a.getNombreComercial()),
+                            nvl(a.getNif()),
+                            nvl(a.getDireccion()),
+                            nvl(a.getTelefono()),
+                            nvl(a.getEmail()));
                     try {
                         enviarMensajeHtml(bot, chatId, perfil);
                     } catch (TelegramApiException e) {
@@ -306,16 +302,17 @@ public class TextHandler {
         long chatId = message.getChatId();
         long telegramId = message.getFrom().getId();
 
-        usuarioDao.findByTelegramId(telegramId).ifPresentOrElse(
-                u -> {
+        autonomoDao.findByTelegramId(telegramId).ifPresentOrElse(
+                a -> {
                     String texto;
-                    if (u.esPro()) {
+                    if (a.esPro()) {
                         texto = "⭐ <b>Plan PRO</b> — Presupuestos y facturas ilimitadas.";
                     } else {
+                        int usados = presupuestoDao.contarPorAutonomoEnMes(a.getId());
                         texto = String.format(
                                 "Plan <b>FREE</b> — %d de %d presupuestos usados este mes.\n\n" +
                                 "Hazte PRO para presupuestos ilimitados y generación de facturas.",
-                                u.getPresupuestosMes(), Usuario.LIMITE_PRESUPUESTOS_FREE);
+                                usados, Autonomo.LIMITE_PRESUPUESTOS_FREE);
                     }
                     try {
                         enviarMensajeHtml(bot, chatId, texto);
@@ -372,14 +369,14 @@ public class TextHandler {
         String nombre = session.getBorradorPresupuesto().getClienteNombre();
         String nif    = session.getBorradorPresupuesto().getDescripcion();
 
-        Usuario nuevo = new Usuario();
+        Autonomo nuevo = new Autonomo();
         nuevo.setTelegramId(telegramId);
         nuevo.setNombre(nombre);
         nuevo.setNif(nif);
         nuevo.setDireccion(direccion.equals("-") ? null : direccion);
-        nuevo.setPlan(Usuario.PLAN_FREE);
+        nuevo.setPlan(Autonomo.PLAN_FREE);
 
-        usuarioDao.crear(nuevo);
+        autonomoDao.crear(nuevo);
         session.reset();
 
         enviarMensaje(bot, chatId, String.format(
@@ -409,7 +406,6 @@ public class TextHandler {
             return;
         }
 
-        // Las ediciones cuentan como peticiones (rate limit compartido)
         RateLimiter.Resultado limitado = rateLimiter.comprobarTexto(telegramId);
         if (limitado != RateLimiter.Resultado.OK) {
             bot.execute(SendMessage.builder()
@@ -437,7 +433,6 @@ public class TextHandler {
             log.info("Borrador editado chatId={} edicion={}/{}", chatId,
                     session.getContadorEdiciones(), maxEdiciones);
 
-            // Avisar sobre ediciones restantes si quedan pocas
             int restantes = maxEdiciones - session.getContadorEdiciones();
             String notaEdiciones = restantes <= 2
                     ? String.format("\n\n<i>%d edición%s restante%s.</i>",
@@ -472,7 +467,7 @@ public class TextHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Formato del borrador (idéntico al de VoiceHandler)
+    // Formato del borrador
     // -------------------------------------------------------------------------
 
     private String formatearBorrador(DatosPresupuesto datos) {

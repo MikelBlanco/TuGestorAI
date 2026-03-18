@@ -6,7 +6,7 @@ import org.apache.poi.xssf.usermodel.*;
 import org.gestorai.exception.ServiceException;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Presupuesto;
-import org.gestorai.model.Usuario;
+import org.gestorai.model.Autonomo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +39,7 @@ public class ExcelService {
      * @return bytes del fichero xlsx listo para enviar o adjuntar
      * @throws ServiceException si hay error al serializar el workbook
      */
-    public byte[] generarPresupuesto(Presupuesto presupuesto, Usuario usuario) {
+    public byte[] generarPresupuesto(Presupuesto presupuesto, Autonomo usuario) {
         try (XSSFWorkbook wb = new XSSFWorkbook()) {
             XSSFSheet sheet = wb.createSheet("Presupuesto");
 
@@ -73,8 +73,8 @@ public class ExcelService {
             String fechaStr = presupuesto.getCreatedAt() != null
                     ? presupuesto.getCreatedAt().format(FMT_FECHA) : "";
             fila = escribirCampo(sheet, estilos, "Fecha", fechaStr, fila);
-            if (presupuesto.getDescripcion() != null && !presupuesto.getDescripcion().isBlank()) {
-                fila = escribirCampo(sheet, estilos, "Descripción", presupuesto.getDescripcion(), fila);
+            if (presupuesto.getNotas() != null && !presupuesto.getNotas().isBlank()) {
+                fila = escribirCampo(sheet, estilos, "Descripción", presupuesto.getNotas(), fila);
             }
             fila++; // fila en blanco
 

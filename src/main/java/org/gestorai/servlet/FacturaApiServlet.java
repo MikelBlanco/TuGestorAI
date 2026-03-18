@@ -4,10 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSerializer;
 import org.gestorai.dao.FacturaDao;
-import org.gestorai.dao.UsuarioDao;
+import org.gestorai.dao.AutonomoDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.model.Autonomo;
 import org.gestorai.model.Factura;
-import org.gestorai.model.Usuario;
 import org.gestorai.service.FacturaService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -40,7 +40,7 @@ public class FacturaApiServlet extends HttpServlet {
     private static final Logger log = LoggerFactory.getLogger(FacturaApiServlet.class);
 
     private final FacturaDao facturaDao = new FacturaDao();
-    private final UsuarioDao usuarioDao = new UsuarioDao();
+    private final AutonomoDao autonomoDao = new AutonomoDao();
     private final FacturaService facturaService = new FacturaService();
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(LocalDateTime.class,
@@ -57,20 +57,20 @@ public class FacturaApiServlet extends HttpServlet {
             throws ServletException, IOException {
         prepararRespuestaJson(resp);
 
-        Optional<Usuario> usuarioOpt = resolverUsuario(req);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = resolverAutonomo(req);
+        if (autonomoOpt.isEmpty()) {
             enviarError(resp, HttpServletResponse.SC_UNAUTHORIZED, "No autenticado");
             return;
         }
-        long usuarioId = usuarioOpt.get().getId();
+        long autonomoId = autonomoOpt.get().getId();
 
         String pathInfo = req.getPathInfo();
 
         if (pathInfo == null || pathInfo.equals("/")) {
             String estado = req.getParameter("estado");
             List<Factura> lista = (estado != null && !estado.isBlank())
-                    ? facturaDao.findByUsuarioIdAndEstado(usuarioId, estado)
-                    : facturaDao.findByUsuarioId(usuarioId);
+                    ? facturaDao.findByAutonomoIdAndEstado(autonomoId, estado)
+                    : facturaDao.findByAutonomoId(autonomoId);
             resp.getWriter().write(gson.toJson(lista));
 
         } else {
@@ -79,7 +79,7 @@ public class FacturaApiServlet extends HttpServlet {
 
             facturaDao.findById(id).ifPresentOrElse(
                     f -> {
-                        if (!f.getUsuarioId().equals(usuarioId)) {
+                        if (!f.getAutonomoId().equals(autonomoId)) {
                             try { enviarError(resp, HttpServletResponse.SC_FORBIDDEN, "Sin acceso"); }
                             catch (IOException e) { log.error("Error enviando 403", e); }
                             return;
@@ -104,12 +104,12 @@ public class FacturaApiServlet extends HttpServlet {
             throws ServletException, IOException {
         prepararRespuestaJson(resp);
 
-        Optional<Usuario> usuarioOpt = resolverUsuario(req);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = resolverAutonomo(req);
+        if (autonomoOpt.isEmpty()) {
             enviarError(resp, HttpServletResponse.SC_UNAUTHORIZED, "No autenticado");
             return;
         }
-        Usuario usuario = usuarioOpt.get();
+        Autonomo autonomo = autonomoOpt.get();
 
         // Body esperado: {"presupuesto_id": 123, "irpf_porcentaje": 15}
         @SuppressWarnings("unchecked")
@@ -125,7 +125,7 @@ public class FacturaApiServlet extends HttpServlet {
                 : null;
 
         try {
-            Factura factura = facturaService.crearDesdePresupuesto(presupuestoId, usuario, irpf);
+            Factura factura = facturaService.crearDesdePresupuesto(presupuestoId, autonomo, irpf);
             resp.setStatus(HttpServletResponse.SC_CREATED);
             resp.getWriter().write(gson.toJson(factura));
         } catch (ServiceException e) {
@@ -145,12 +145,12 @@ public class FacturaApiServlet extends HttpServlet {
             throws ServletException, IOException {
         prepararRespuestaJson(resp);
 
-        Optional<Usuario> usuarioOpt = resolverUsuario(req);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = resolverAutonomo(req);
+        if (autonomoOpt.isEmpty()) {
             enviarError(resp, HttpServletResponse.SC_UNAUTHORIZED, "No autenticado");
             return;
         }
-        long usuarioId = usuarioOpt.get().getId();
+        long autonomoId = autonomoOpt.get().getId();
 
         String pathInfo = req.getPathInfo();
         if (pathInfo == null || !pathInfo.endsWith("/estado")) {
@@ -168,7 +168,7 @@ public class FacturaApiServlet extends HttpServlet {
         }
 
         Optional<Factura> facturaOpt = facturaDao.findById(id);
-        if (facturaOpt.isEmpty() || !facturaOpt.get().getUsuarioId().equals(usuarioId)) {
+        if (facturaOpt.isEmpty() || !facturaOpt.get().getAutonomoId().equals(autonomoId)) {
             enviarError(resp, HttpServletResponse.SC_NOT_FOUND, "No encontrada");
             return;
         }
@@ -190,11 +190,11 @@ public class FacturaApiServlet extends HttpServlet {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private Optional<Usuario> resolverUsuario(HttpServletRequest req) {
+    private Optional<Autonomo> resolverAutonomo(HttpServletRequest req) {
         String header = req.getHeader("X-Telegram-Id");
         if (header == null || header.isBlank()) return Optional.empty();
         try {
-            return usuarioDao.findByTelegramId(Long.parseLong(header));
+            return autonomoDao.findByTelegramId(Long.parseLong(header));
         } catch (NumberFormatException e) {
             return Optional.empty();
         }

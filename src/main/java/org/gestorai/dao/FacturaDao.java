@@ -21,10 +21,9 @@ public class FacturaDao extends BaseDao {
     private static final Logger log = LoggerFactory.getLogger(FacturaDao.class);
 
     private static final String SQL_SELECT = """
-            SELECT id, numero, usuario_id, presupuesto_id, cliente_id, cliente_nombre,
-                   descripcion, subtotal, iva_porcentaje, iva_importe,
-                   irpf_porcentaje, irpf_importe, total, estado, pdf_path,
-                   created_at, updated_at
+            SELECT id, autonomo_id, presupuesto_id, cliente_id, numero, estado,
+                   cliente_nombre, notas, subtotal, iva_porcentaje, iva_importe,
+                   irpf_porcentaje, irpf_importe, total, created_at, updated_at
               FROM facturas
             """;
 
@@ -55,57 +54,60 @@ public class FacturaDao extends BaseDao {
     }
 
     /**
-     * Lista todas las facturas de un usuario, sin líneas de detalle.
+     * Lista todas las facturas de un autónomo, sin líneas de detalle.
      */
-    public List<Factura> findByUsuarioId(long usuarioId) {
-        String sql = SQL_SELECT + " WHERE usuario_id = ? ORDER BY created_at DESC";
+    public List<Factura> findByAutonomoId(long autonomoId) {
+        validateAutonomoId(autonomoId);
+        String sql = SQL_SELECT + " WHERE autonomo_id = ? ORDER BY created_at DESC";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             return mapearLista(ps);
         } catch (SQLException e) {
-            throw new DaoException("Error listando facturas usuario=" + usuarioId, e);
+            throw new DaoException("Error listando facturas autonomo=" + autonomoId, e);
         }
     }
 
     /**
-     * Lista las facturas de un usuario filtradas por estado.
+     * Lista las facturas de un autónomo filtradas por estado.
      */
-    public List<Factura> findByUsuarioIdAndEstado(long usuarioId, String estado) {
-        String sql = SQL_SELECT + " WHERE usuario_id = ? AND estado = ? ORDER BY created_at DESC";
+    public List<Factura> findByAutonomoIdAndEstado(long autonomoId, String estado) {
+        validateAutonomoId(autonomoId);
+        String sql = SQL_SELECT + " WHERE autonomo_id = ? AND estado = ? ORDER BY created_at DESC";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             ps.setString(2, estado);
             return mapearLista(ps);
         } catch (SQLException e) {
-            throw new DaoException("Error listando facturas usuario=" + usuarioId + " estado=" + estado, e);
+            throw new DaoException("Error listando facturas autonomo=" + autonomoId + " estado=" + estado, e);
         }
     }
 
     /**
-     * Cuenta las facturas de un usuario en un año. Usado para numeración correlativa.
+     * Cuenta las facturas de un autónomo en un año. Usado para numeración correlativa.
      */
-    public int contarPorUsuarioYAnio(long usuarioId, int anio) {
+    public int contarPorAutonomoYAnio(long autonomoId, int anio) {
+        validateAutonomoId(autonomoId);
         String sql = """
                 SELECT COUNT(*)
                   FROM facturas
-                 WHERE usuario_id = ?
+                 WHERE autonomo_id = ?
                    AND EXTRACT(YEAR FROM created_at) = ?
                 """;
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             ps.setInt(2, anio);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getInt(1);
             }
         } catch (SQLException e) {
             throw new DaoException("Error contando facturas del año " + anio +
-                    " para usuario=" + usuarioId, e);
+                    " para autonomo=" + autonomoId, e);
         }
         return 0;
     }
@@ -121,11 +123,12 @@ public class FacturaDao extends BaseDao {
      * @return la misma factura con ID y {@code createdAt} rellenos
      */
     public Factura crear(Factura f) {
+        validateAutonomoId(f.getAutonomoId());
         String sql = """
                 INSERT INTO facturas
-                    (numero, usuario_id, presupuesto_id, cliente_id, cliente_nombre,
-                     descripcion, subtotal, iva_porcentaje, iva_importe,
-                     irpf_porcentaje, irpf_importe, total, estado)
+                    (autonomo_id, presupuesto_id, cliente_id, numero, estado,
+                     cliente_nombre, notas, subtotal, iva_porcentaje, iva_importe,
+                     irpf_porcentaje, irpf_importe, total)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id, created_at
                 """;
@@ -134,19 +137,19 @@ public class FacturaDao extends BaseDao {
             conn.setAutoCommit(false);
             try {
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                    ps.setString(1, f.getNumero());
-                    ps.setLong(2, f.getUsuarioId());
-                    setNullableLong(ps, 3, f.getPresupuestoId());
-                    setNullableLong(ps, 4, f.getClienteId());
-                    ps.setString(5, f.getClienteNombre());
-                    ps.setString(6, f.getDescripcion());
-                    ps.setBigDecimal(7, f.getSubtotal());
-                    ps.setBigDecimal(8, f.getIvaPorcentaje());
-                    ps.setBigDecimal(9, f.getIvaImporte());
-                    ps.setBigDecimal(10, f.getIrpfPorcentaje());
-                    ps.setBigDecimal(11, f.getIrpfImporte());
-                    ps.setBigDecimal(12, f.getTotal());
-                    ps.setString(13, f.getEstado() != null ? f.getEstado() : Factura.ESTADO_BORRADOR);
+                    ps.setLong(1, f.getAutonomoId());
+                    setNullableLong(ps, 2, f.getPresupuestoId());
+                    setNullableLong(ps, 3, f.getClienteId());
+                    ps.setString(4, f.getNumero());
+                    ps.setString(5, f.getEstado() != null ? f.getEstado() : Factura.ESTADO_BORRADOR);
+                    ps.setString(6, f.getClienteNombre());
+                    ps.setString(7, f.getNotas());
+                    ps.setBigDecimal(8, f.getSubtotal());
+                    ps.setBigDecimal(9, f.getIvaPorcentaje());
+                    ps.setBigDecimal(10, f.getIvaImporte());
+                    ps.setBigDecimal(11, f.getIrpfPorcentaje());
+                    ps.setBigDecimal(12, f.getIrpfImporte());
+                    ps.setBigDecimal(13, f.getTotal());
 
                     try (ResultSet rs = ps.executeQuery()) {
                         rs.next();
@@ -187,23 +190,6 @@ public class FacturaDao extends BaseDao {
         }
     }
 
-    /**
-     * Guarda la ruta del PDF generado.
-     */
-    public void actualizarPdfPath(long id, String pdfPath) {
-        String sql = "UPDATE facturas SET pdf_path = ? WHERE id = ?";
-        try (Connection conn = DbUtil.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setString(1, pdfPath);
-            ps.setLong(2, id);
-            ps.executeUpdate();
-
-        } catch (SQLException e) {
-            throw new DaoException("Error actualizando pdf_path factura id=" + id, e);
-        }
-    }
-
     // -------------------------------------------------------------------------
     // Helpers privados
     // -------------------------------------------------------------------------
@@ -219,8 +205,7 @@ public class FacturaDao extends BaseDao {
     private Factura mapRow(ResultSet rs) throws SQLException {
         Factura f = new Factura();
         f.setId(rs.getLong("id"));
-        f.setNumero(rs.getString("numero"));
-        f.setUsuarioId(rs.getLong("usuario_id"));
+        f.setAutonomoId(rs.getLong("autonomo_id"));
 
         long presupuestoId = rs.getLong("presupuesto_id");
         f.setPresupuestoId(rs.wasNull() ? null : presupuestoId);
@@ -228,16 +213,16 @@ public class FacturaDao extends BaseDao {
         long clienteId = rs.getLong("cliente_id");
         f.setClienteId(rs.wasNull() ? null : clienteId);
 
+        f.setNumero(rs.getString("numero"));
+        f.setEstado(rs.getString("estado"));
         f.setClienteNombre(rs.getString("cliente_nombre"));
-        f.setDescripcion(rs.getString("descripcion"));
+        f.setNotas(rs.getString("notas"));
         f.setSubtotal(rs.getBigDecimal("subtotal"));
         f.setIvaPorcentaje(rs.getBigDecimal("iva_porcentaje"));
         f.setIvaImporte(rs.getBigDecimal("iva_importe"));
         f.setIrpfPorcentaje(rs.getBigDecimal("irpf_porcentaje"));
         f.setIrpfImporte(rs.getBigDecimal("irpf_importe"));
         f.setTotal(rs.getBigDecimal("total"));
-        f.setEstado(rs.getString("estado"));
-        f.setPdfPath(rs.getString("pdf_path"));
 
         Timestamp createdAt = rs.getTimestamp("created_at");
         if (createdAt != null) f.setCreatedAt(createdAt.toLocalDateTime());
@@ -249,7 +234,7 @@ public class FacturaDao extends BaseDao {
 
     private List<LineaDetalle> findLineas(Connection conn, long facturaId) throws SQLException {
         String sql = """
-                SELECT id, factura_id, concepto, cantidad, precio_unitario, importe, tipo, orden
+                SELECT id, factura_id, concepto, tipo, cantidad, precio_unitario, importe, orden
                   FROM lineas_detalle
                  WHERE factura_id = ?
                  ORDER BY orden, id
@@ -263,10 +248,10 @@ public class FacturaDao extends BaseDao {
                     l.setId(rs.getLong("id"));
                     l.setFacturaId(rs.getLong("factura_id"));
                     l.setConcepto(rs.getString("concepto"));
+                    l.setTipo(rs.getString("tipo"));
                     l.setCantidad(rs.getBigDecimal("cantidad"));
                     l.setPrecioUnitario(rs.getBigDecimal("precio_unitario"));
                     l.setImporte(rs.getBigDecimal("importe"));
-                    l.setTipo(rs.getString("tipo"));
                     l.setOrden(rs.getInt("orden"));
                     lineas.add(l);
                 }
@@ -281,7 +266,7 @@ public class FacturaDao extends BaseDao {
 
         String sql = """
                 INSERT INTO lineas_detalle
-                    (factura_id, concepto, cantidad, precio_unitario, importe, tipo, orden)
+                    (factura_id, concepto, tipo, cantidad, precio_unitario, importe, orden)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -289,10 +274,10 @@ public class FacturaDao extends BaseDao {
                 LineaDetalle l = lineas.get(i);
                 ps.setLong(1, facturaId);
                 ps.setString(2, l.getConcepto());
-                ps.setBigDecimal(3, l.getCantidad());
-                ps.setBigDecimal(4, l.getPrecioUnitario());
-                ps.setBigDecimal(5, l.getImporte());
-                ps.setString(6, l.getTipo() != null ? l.getTipo() : LineaDetalle.TIPO_SERVICIO);
+                ps.setString(3, l.getTipo() != null ? l.getTipo() : LineaDetalle.TIPO_SERVICIO);
+                ps.setBigDecimal(4, l.getCantidad());
+                ps.setBigDecimal(5, l.getPrecioUnitario());
+                ps.setBigDecimal(6, l.getImporte());
                 ps.setInt(7, i);
                 ps.addBatch();
             }

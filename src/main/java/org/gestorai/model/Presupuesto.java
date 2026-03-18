@@ -10,26 +10,27 @@ import java.util.List;
  */
 public class Presupuesto {
 
-    public static final String ESTADO_BORRADOR   = "borrador";
-    public static final String ESTADO_ENVIADO    = "enviado";
-    public static final String ESTADO_ACEPTADO   = "aceptado";
-    public static final String ESTADO_RECHAZADO  = "rechazado";
+    public static final String ESTADO_BORRADOR   = "BORRADOR";
+    public static final String ESTADO_ENVIADO    = "ENVIADO";
+    public static final String ESTADO_ACEPTADO   = "ACEPTADO";
+    public static final String ESTADO_RECHAZADO  = "RECHAZADO";
+    public static final String ESTADO_FACTURADO  = "FACTURADO";
+    public static final String ESTADO_CANCELADO  = "CANCELADO";
 
     private Long id;
-    private String numero;
-    private Long usuarioId;
+    private Long autonomoId;
     private Long clienteId;
+    private String numero;
+    private String estado;
     private String clienteNombre;
-    private String descripcion;
+    private String notas;
     private BigDecimal subtotal;
     private BigDecimal ivaPorcentaje;
     private BigDecimal ivaImporte;
     private BigDecimal total;
-    private String estado;
-    private String audioTranscript;
+    private String audioTranscript;  // cifrado AES-256-GCM
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    private LocalDateTime enviadoAt;
 
     private List<LineaDetalle> lineas = new ArrayList<>();
 
@@ -38,20 +39,23 @@ public class Presupuesto {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getNumero() { return numero; }
-    public void setNumero(String numero) { this.numero = numero; }
-
-    public Long getUsuarioId() { return usuarioId; }
-    public void setUsuarioId(Long usuarioId) { this.usuarioId = usuarioId; }
+    public Long getAutonomoId() { return autonomoId; }
+    public void setAutonomoId(Long autonomoId) { this.autonomoId = autonomoId; }
 
     public Long getClienteId() { return clienteId; }
     public void setClienteId(Long clienteId) { this.clienteId = clienteId; }
 
+    public String getNumero() { return numero; }
+    public void setNumero(String numero) { this.numero = numero; }
+
+    public String getEstado() { return estado; }
+    public void setEstado(String estado) { this.estado = estado; }
+
     public String getClienteNombre() { return clienteNombre; }
     public void setClienteNombre(String clienteNombre) { this.clienteNombre = clienteNombre; }
 
-    public String getDescripcion() { return descripcion; }
-    public void setDescripcion(String descripcion) { this.descripcion = descripcion; }
+    public String getNotas() { return notas; }
+    public void setNotas(String notas) { this.notas = notas; }
 
     public BigDecimal getSubtotal() { return subtotal; }
     public void setSubtotal(BigDecimal subtotal) { this.subtotal = subtotal; }
@@ -65,9 +69,6 @@ public class Presupuesto {
     public BigDecimal getTotal() { return total; }
     public void setTotal(BigDecimal total) { this.total = total; }
 
-    public String getEstado() { return estado; }
-    public void setEstado(String estado) { this.estado = estado; }
-
     public String getAudioTranscript() { return audioTranscript; }
     public void setAudioTranscript(String audioTranscript) { this.audioTranscript = audioTranscript; }
 
@@ -76,9 +77,6 @@ public class Presupuesto {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
-
-    public LocalDateTime getEnviadoAt() { return enviadoAt; }
-    public void setEnviadoAt(LocalDateTime enviadoAt) { this.enviadoAt = enviadoAt; }
 
     public List<LineaDetalle> getLineas() { return lineas; }
     public void setLineas(List<LineaDetalle> lineas) { this.lineas = lineas; }

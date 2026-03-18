@@ -4,9 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSerializer;
 import org.gestorai.dao.PresupuestoDao;
-import org.gestorai.dao.UsuarioDao;
+import org.gestorai.dao.AutonomoDao;
+import org.gestorai.model.Autonomo;
 import org.gestorai.model.Presupuesto;
-import org.gestorai.model.Usuario;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -37,7 +37,7 @@ public class PresupuestoApiServlet extends HttpServlet {
     private static final Logger log = LoggerFactory.getLogger(PresupuestoApiServlet.class);
 
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
-    private final UsuarioDao usuarioDao = new UsuarioDao();
+    private final AutonomoDao autonomoDao = new AutonomoDao();
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(LocalDateTime.class,
                     (JsonSerializer<LocalDateTime>) (src, type, ctx) ->
@@ -53,12 +53,12 @@ public class PresupuestoApiServlet extends HttpServlet {
             throws ServletException, IOException {
         prepararRespuestaJson(resp);
 
-        Optional<Usuario> usuarioOpt = resolverUsuario(req);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = resolverAutonomo(req);
+        if (autonomoOpt.isEmpty()) {
             enviarError(resp, HttpServletResponse.SC_UNAUTHORIZED, "No autenticado");
             return;
         }
-        long usuarioId = usuarioOpt.get().getId();
+        long autonomoId = autonomoOpt.get().getId();
 
         String pathInfo = req.getPathInfo(); // null, "/" o "/{id}"
 
@@ -66,8 +66,8 @@ public class PresupuestoApiServlet extends HttpServlet {
             // Listado
             String estado = req.getParameter("estado");
             List<Presupuesto> lista = (estado != null && !estado.isBlank())
-                    ? presupuestoDao.findByUsuarioIdAndEstado(usuarioId, estado)
-                    : presupuestoDao.findByUsuarioId(usuarioId);
+                    ? presupuestoDao.findByAutonomoIdAndEstado(autonomoId, estado)
+                    : presupuestoDao.findByAutonomoId(autonomoId);
             resp.getWriter().write(gson.toJson(lista));
 
         } else {
@@ -77,7 +77,7 @@ public class PresupuestoApiServlet extends HttpServlet {
 
             presupuestoDao.findById(id).ifPresentOrElse(
                     p -> {
-                        if (!p.getUsuarioId().equals(usuarioId)) {
+                        if (!p.getAutonomoId().equals(autonomoId)) {
                             try { enviarError(resp, HttpServletResponse.SC_FORBIDDEN, "Sin acceso"); }
                             catch (IOException e) { log.error("Error enviando 403", e); }
                             return;
@@ -102,12 +102,12 @@ public class PresupuestoApiServlet extends HttpServlet {
             throws ServletException, IOException {
         prepararRespuestaJson(resp);
 
-        Optional<Usuario> usuarioOpt = resolverUsuario(req);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = resolverAutonomo(req);
+        if (autonomoOpt.isEmpty()) {
             enviarError(resp, HttpServletResponse.SC_UNAUTHORIZED, "No autenticado");
             return;
         }
-        long usuarioId = usuarioOpt.get().getId();
+        long autonomoId = autonomoOpt.get().getId();
 
         // Solo admitimos PUT /api/presupuestos/{id}/estado
         String pathInfo = req.getPathInfo(); // "/{id}/estado"
@@ -127,7 +127,7 @@ public class PresupuestoApiServlet extends HttpServlet {
 
         // Verificar pertenencia
         Optional<Presupuesto> presupuestoOpt = presupuestoDao.findById(id);
-        if (presupuestoOpt.isEmpty() || !presupuestoOpt.get().getUsuarioId().equals(usuarioId)) {
+        if (presupuestoOpt.isEmpty() || !presupuestoOpt.get().getAutonomoId().equals(autonomoId)) {
             enviarError(resp, HttpServletResponse.SC_NOT_FOUND, "No encontrado");
             return;
         }
@@ -151,14 +151,14 @@ public class PresupuestoApiServlet extends HttpServlet {
     // -------------------------------------------------------------------------
 
     /**
-     * Resuelve el usuario a partir del Telegram-ID enviado en la cabecera {@code X-Telegram-Id}.
+     * Resuelve el autónomo a partir del Telegram-ID enviado en la cabecera {@code X-Telegram-Id}.
      * TODO: sustituir por autenticación real (JWT / sesión) cuando se implemente el panel web.
      */
-    private Optional<Usuario> resolverUsuario(HttpServletRequest req) {
+    private Optional<Autonomo> resolverAutonomo(HttpServletRequest req) {
         String header = req.getHeader("X-Telegram-Id");
         if (header == null || header.isBlank()) return Optional.empty();
         try {
-            return usuarioDao.findByTelegramId(Long.parseLong(header));
+            return autonomoDao.findByTelegramId(Long.parseLong(header));
         } catch (NumberFormatException e) {
             return Optional.empty();
         }

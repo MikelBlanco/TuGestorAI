@@ -24,9 +24,9 @@ public class PresupuestoDao extends BaseDao {
     private static final Logger log = LoggerFactory.getLogger(PresupuestoDao.class);
 
     private static final String COLUMNAS = """
-            id, numero, usuario_id, cliente_id, cliente_nombre, descripcion,
-            subtotal, iva_porcentaje, iva_importe, total, estado,
-            audio_transcript, created_at, updated_at, enviado_at
+            id, autonomo_id, cliente_id, numero, estado, cliente_nombre,
+            subtotal, iva_porcentaje, iva_importe, total,
+            audio_transcript, notas, created_at, updated_at
             """;
 
     // -------------------------------------------------------------------------
@@ -35,9 +35,6 @@ public class PresupuestoDao extends BaseDao {
 
     /**
      * Busca un presupuesto por su ID, incluyendo sus líneas de detalle.
-     *
-     * @param id clave primaria
-     * @return el presupuesto, o {@link Optional#empty()} si no existe
      */
     public Optional<Presupuesto> findById(long id) {
         String sql = "SELECT " + COLUMNAS + " FROM presupuestos WHERE id = ?";
@@ -59,89 +56,114 @@ public class PresupuestoDao extends BaseDao {
     }
 
     /**
-     * Lista todos los presupuestos de un usuario, sin cargar sus líneas de detalle.
+     * Lista todos los presupuestos de un autónomo, sin cargar sus líneas de detalle.
      *
-     * @param usuarioId ID del autónomo
+     * @param autonomoId ID del autónomo
      * @return lista ordenada por fecha de creación descendente
      */
-    public List<Presupuesto> findByUsuarioId(long usuarioId) {
-        String sql = "SELECT " + COLUMNAS + " FROM presupuestos WHERE usuario_id = ? ORDER BY created_at DESC";
-        return ejecutarListado(sql, usuarioId);
+    public List<Presupuesto> findByAutonomoId(long autonomoId) {
+        validateAutonomoId(autonomoId);
+        String sql = "SELECT " + COLUMNAS + " FROM presupuestos WHERE autonomo_id = ? ORDER BY created_at DESC";
+        return ejecutarListado(sql, autonomoId);
     }
 
     /**
-     * Lista los presupuestos de un usuario filtrados por estado, sin líneas de detalle.
-     *
-     * @param usuarioId ID del autónomo
-     * @param estado    valor del campo {@code estado} (ver constantes en {@link Presupuesto})
+     * Lista los presupuestos de un autónomo filtrados por estado, sin líneas de detalle.
      */
-    public List<Presupuesto> findByUsuarioIdAndEstado(long usuarioId, String estado) {
+    public List<Presupuesto> findByAutonomoIdAndEstado(long autonomoId, String estado) {
+        validateAutonomoId(autonomoId);
         String sql = "SELECT " + COLUMNAS +
-                     " FROM presupuestos WHERE usuario_id = ? AND estado = ? ORDER BY created_at DESC";
+                     " FROM presupuestos WHERE autonomo_id = ? AND estado = ? ORDER BY created_at DESC";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             ps.setString(2, estado);
             return mapearLista(ps);
         } catch (SQLException e) {
-            throw new DaoException("Error listando presupuestos usuario=" + usuarioId + " estado=" + estado, e);
+            throw new DaoException("Error listando presupuestos autonomo=" + autonomoId + " estado=" + estado, e);
         }
     }
 
     /**
-     * Cuenta los presupuestos creados por un usuario en un año concreto.
-     * Se usa para generar la numeración correlativa anual (P-2026-0001).
-     *
-     * @param usuarioId ID del autónomo
-     * @param anio      año de cuatro dígitos
-     * @return número de presupuestos del año
+     * Lista los presupuestos de un autónomo en un mes y año concreto.
      */
-    public int contarPorUsuarioYAnio(long usuarioId, int anio) {
+    public List<Presupuesto> listarPorMes(long autonomoId, int year, int month) {
+        validateAutonomoId(autonomoId);
+        String sql = "SELECT " + COLUMNAS + """
+                 FROM presupuestos
+                WHERE autonomo_id = ?
+                  AND EXTRACT(YEAR  FROM created_at) = ?
+                  AND EXTRACT(MONTH FROM created_at) = ?
+                ORDER BY created_at DESC
+                """;
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, autonomoId);
+            ps.setInt(2, year);
+            ps.setInt(3, month);
+            return mapearLista(ps);
+        } catch (SQLException e) {
+            throw new DaoException("Error listando presupuestos autonomo=" + autonomoId, e);
+        }
+    }
+
+    /**
+     * Lista los presupuestos en estado ACEPTADO pendientes de facturar.
+     */
+    public List<Presupuesto> listarPendientes(long autonomoId) {
+        return findByAutonomoIdAndEstado(autonomoId, Presupuesto.ESTADO_ACEPTADO);
+    }
+
+    /**
+     * Cuenta los presupuestos creados por un autónomo en un año concreto.
+     * Se usa para generar la numeración correlativa anual (P-2026-0001).
+     */
+    public int contarPorAutonomoYAnio(long autonomoId, int anio) {
+        validateAutonomoId(autonomoId);
         String sql = """
                 SELECT COUNT(*)
                   FROM presupuestos
-                 WHERE usuario_id = ?
+                 WHERE autonomo_id = ?
                    AND EXTRACT(YEAR FROM created_at) = ?
                 """;
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             ps.setInt(2, anio);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getInt(1);
             }
         } catch (SQLException e) {
             throw new DaoException("Error contando presupuestos del año " + anio +
-                    " para usuario=" + usuarioId, e);
+                    " para autonomo=" + autonomoId, e);
         }
         return 0;
     }
 
     /**
-     * Cuenta los presupuestos creados por un usuario en el mes natural actual.
+     * Cuenta los presupuestos creados por un autónomo en el mes natural actual.
      * Se usa para verificar el límite del plan freemium.
-     *
-     * @param usuarioId ID del autónomo
-     * @return número de presupuestos del mes en curso
      */
-    public int contarPorUsuarioEnMes(long usuarioId) {
+    public int contarPorAutonomoEnMes(long autonomoId) {
+        validateAutonomoId(autonomoId);
         String sql = """
                 SELECT COUNT(*)
                   FROM presupuestos
-                 WHERE usuario_id = ?
+                 WHERE autonomo_id = ?
                    AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
                 """;
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getInt(1);
             }
         } catch (SQLException e) {
-            throw new DaoException("Error contando presupuestos del mes para usuario=" + usuarioId, e);
+            throw new DaoException("Error contando presupuestos del mes para autonomo=" + autonomoId, e);
         }
         return 0;
     }
@@ -157,10 +179,11 @@ public class PresupuestoDao extends BaseDao {
      * @return el mismo objeto con el ID y {@code createdAt} rellenos
      */
     public Presupuesto crear(Presupuesto p) {
+        validateAutonomoId(p.getAutonomoId());
         String sqlPresupuesto = """
                 INSERT INTO presupuestos
-                    (numero, usuario_id, cliente_id, cliente_nombre, descripcion,
-                     subtotal, iva_porcentaje, iva_importe, total, estado, audio_transcript)
+                    (autonomo_id, cliente_id, numero, estado, cliente_nombre,
+                     subtotal, iva_porcentaje, iva_importe, total, audio_transcript, notas)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id, created_at
                 """;
@@ -169,17 +192,17 @@ public class PresupuestoDao extends BaseDao {
             conn.setAutoCommit(false);
             try {
                 try (PreparedStatement ps = conn.prepareStatement(sqlPresupuesto)) {
-                    ps.setString(1, p.getNumero());
-                    ps.setLong(2, p.getUsuarioId());
-                    setNullableLong(ps, 3, p.getClienteId());
-                    ps.setString(4, p.getClienteNombre());
-                    ps.setString(5, p.getDescripcion());
+                    ps.setLong(1, p.getAutonomoId());
+                    setNullableLong(ps, 2, p.getClienteId());
+                    ps.setString(3, p.getNumero());
+                    ps.setString(4, p.getEstado() != null ? p.getEstado() : Presupuesto.ESTADO_BORRADOR);
+                    ps.setString(5, p.getClienteNombre());
                     ps.setBigDecimal(6, p.getSubtotal());
                     ps.setBigDecimal(7, p.getIvaPorcentaje());
                     ps.setBigDecimal(8, p.getIvaImporte());
                     ps.setBigDecimal(9, p.getTotal());
-                    ps.setString(10, p.getEstado() != null ? p.getEstado() : Presupuesto.ESTADO_BORRADOR);
-                    ps.setString(11, CryptoUtil.encrypt(p.getAudioTranscript()));
+                    ps.setString(10, CryptoUtil.encrypt(p.getAudioTranscript()));
+                    ps.setString(11, p.getNotas());
 
                     try (ResultSet rs = ps.executeQuery()) {
                         rs.next();
@@ -205,38 +228,36 @@ public class PresupuestoDao extends BaseDao {
     /**
      * Actualiza un presupuesto existente y reemplaza todas sus líneas de detalle.
      * La operación es transaccional.
-     *
-     * @param p presupuesto con los nuevos datos (debe tener ID)
      */
     public void actualizar(Presupuesto p) {
+        validateAutonomoId(p.getAutonomoId());
         String sql = """
                 UPDATE presupuestos
-                   SET numero         = ?,
-                       cliente_id     = ?,
+                   SET cliente_id     = ?,
                        cliente_nombre = ?,
-                       descripcion    = ?,
+                       notas          = ?,
                        subtotal       = ?,
                        iva_porcentaje = ?,
                        iva_importe    = ?,
                        total          = ?,
                        estado         = ?
-                 WHERE id = ?
+                 WHERE id = ? AND autonomo_id = ?
                 """;
 
         try (Connection conn = DbUtil.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                    ps.setString(1, p.getNumero());
-                    setNullableLong(ps, 2, p.getClienteId());
-                    ps.setString(3, p.getClienteNombre());
-                    ps.setString(4, p.getDescripcion());
-                    ps.setBigDecimal(5, p.getSubtotal());
-                    ps.setBigDecimal(6, p.getIvaPorcentaje());
-                    ps.setBigDecimal(7, p.getIvaImporte());
-                    ps.setBigDecimal(8, p.getTotal());
-                    ps.setString(9, p.getEstado());
-                    ps.setLong(10, p.getId());
+                    setNullableLong(ps, 1, p.getClienteId());
+                    ps.setString(2, p.getClienteNombre());
+                    ps.setString(3, p.getNotas());
+                    ps.setBigDecimal(4, p.getSubtotal());
+                    ps.setBigDecimal(5, p.getIvaPorcentaje());
+                    ps.setBigDecimal(6, p.getIvaImporte());
+                    ps.setBigDecimal(7, p.getTotal());
+                    ps.setString(8, p.getEstado());
+                    ps.setLong(9, p.getId());
+                    ps.setLong(10, p.getAutonomoId());
                     ps.executeUpdate();
                 }
 
@@ -261,13 +282,7 @@ public class PresupuestoDao extends BaseDao {
      * @param estado nuevo estado (ver constantes en {@link Presupuesto})
      */
     public void actualizarEstado(long id, String estado) {
-        String sql;
-        if (Presupuesto.ESTADO_ENVIADO.equals(estado)) {
-            sql = "UPDATE presupuestos SET estado = ?, enviado_at = NOW() WHERE id = ?";
-        } else {
-            sql = "UPDATE presupuestos SET estado = ? WHERE id = ?";
-        }
-
+        String sql = "UPDATE presupuestos SET estado = ? WHERE id = ?";
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
@@ -283,20 +298,15 @@ public class PresupuestoDao extends BaseDao {
 
     /**
      * Elimina un presupuesto. Las líneas de detalle se eliminan en cascada por la BD.
-     *
-     * @param id ID del presupuesto a eliminar
      */
     public void eliminar(long id) {
         String sql = "DELETE FROM presupuestos WHERE id = ?";
-
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             ps.setLong(1, id);
             int filas = ps.executeUpdate();
-            if (filas == 0) {
-                throw new DaoException("No existe el presupuesto id=" + id);
-            }
+            if (filas == 0) throw new DaoException("No existe el presupuesto id=" + id);
             log.info("Presupuesto eliminado id={}", id);
 
         } catch (SQLException e) {
@@ -308,24 +318,22 @@ public class PresupuestoDao extends BaseDao {
     // Helpers privados
     // -------------------------------------------------------------------------
 
-    private List<Presupuesto> ejecutarListado(String sql, long usuarioId) {
+    private List<Presupuesto> ejecutarListado(String sql, long autonomoId) {
         try (Connection conn = DbUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setLong(1, usuarioId);
+            ps.setLong(1, autonomoId);
             return mapearLista(ps);
 
         } catch (SQLException e) {
-            throw new DaoException("Error listando presupuestos usuario=" + usuarioId, e);
+            throw new DaoException("Error listando presupuestos autonomo=" + autonomoId, e);
         }
     }
 
     private List<Presupuesto> mapearLista(PreparedStatement ps) throws SQLException {
         List<Presupuesto> lista = new ArrayList<>();
         try (ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                lista.add(mapRow(rs));
-            }
+            while (rs.next()) lista.add(mapRow(rs));
         }
         return lista;
     }
@@ -333,20 +341,20 @@ public class PresupuestoDao extends BaseDao {
     private Presupuesto mapRow(ResultSet rs) throws SQLException {
         Presupuesto p = new Presupuesto();
         p.setId(rs.getLong("id"));
-        p.setNumero(rs.getString("numero"));
-        p.setUsuarioId(rs.getLong("usuario_id"));
+        p.setAutonomoId(rs.getLong("autonomo_id"));
 
         long clienteId = rs.getLong("cliente_id");
         p.setClienteId(rs.wasNull() ? null : clienteId);
 
+        p.setNumero(rs.getString("numero"));
+        p.setEstado(rs.getString("estado"));
         p.setClienteNombre(rs.getString("cliente_nombre"));
-        p.setDescripcion(rs.getString("descripcion"));
         p.setSubtotal(rs.getBigDecimal("subtotal"));
         p.setIvaPorcentaje(rs.getBigDecimal("iva_porcentaje"));
         p.setIvaImporte(rs.getBigDecimal("iva_importe"));
         p.setTotal(rs.getBigDecimal("total"));
-        p.setEstado(rs.getString("estado"));
         p.setAudioTranscript(CryptoUtil.decrypt(rs.getString("audio_transcript")));
+        p.setNotas(rs.getString("notas"));
 
         Timestamp createdAt = rs.getTimestamp("created_at");
         if (createdAt != null) p.setCreatedAt(createdAt.toLocalDateTime());
@@ -354,15 +362,12 @@ public class PresupuestoDao extends BaseDao {
         Timestamp updatedAt = rs.getTimestamp("updated_at");
         if (updatedAt != null) p.setUpdatedAt(updatedAt.toLocalDateTime());
 
-        Timestamp enviadoAt = rs.getTimestamp("enviado_at");
-        if (enviadoAt != null) p.setEnviadoAt(enviadoAt.toLocalDateTime());
-
         return p;
     }
 
     private List<LineaDetalle> findLineas(Connection conn, long presupuestoId) throws SQLException {
         String sql = """
-                SELECT id, presupuesto_id, concepto, cantidad, precio_unitario, importe, tipo, orden
+                SELECT id, presupuesto_id, concepto, tipo, cantidad, precio_unitario, importe, orden
                   FROM lineas_detalle
                  WHERE presupuesto_id = ?
                  ORDER BY orden, id
@@ -376,10 +381,10 @@ public class PresupuestoDao extends BaseDao {
                     l.setId(rs.getLong("id"));
                     l.setPresupuestoId(rs.getLong("presupuesto_id"));
                     l.setConcepto(rs.getString("concepto"));
+                    l.setTipo(rs.getString("tipo"));
                     l.setCantidad(rs.getBigDecimal("cantidad"));
                     l.setPrecioUnitario(rs.getBigDecimal("precio_unitario"));
                     l.setImporte(rs.getBigDecimal("importe"));
-                    l.setTipo(rs.getString("tipo"));
                     l.setOrden(rs.getInt("orden"));
                     lineas.add(l);
                 }
@@ -394,7 +399,7 @@ public class PresupuestoDao extends BaseDao {
 
         String sql = """
                 INSERT INTO lineas_detalle
-                    (presupuesto_id, concepto, cantidad, precio_unitario, importe, tipo, orden)
+                    (presupuesto_id, concepto, tipo, cantidad, precio_unitario, importe, orden)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -402,10 +407,10 @@ public class PresupuestoDao extends BaseDao {
                 LineaDetalle l = lineas.get(i);
                 ps.setLong(1, presupuestoId);
                 ps.setString(2, l.getConcepto());
-                ps.setBigDecimal(3, l.getCantidad());
-                ps.setBigDecimal(4, l.getPrecioUnitario());
-                ps.setBigDecimal(5, l.getImporte());
-                ps.setString(6, l.getTipo() != null ? l.getTipo() : LineaDetalle.TIPO_SERVICIO);
+                ps.setString(3, l.getTipo() != null ? l.getTipo() : LineaDetalle.TIPO_SERVICIO);
+                ps.setBigDecimal(4, l.getCantidad());
+                ps.setBigDecimal(5, l.getPrecioUnitario());
+                ps.setBigDecimal(6, l.getImporte());
                 ps.setInt(7, i);
                 ps.addBatch();
             }
@@ -422,10 +427,7 @@ public class PresupuestoDao extends BaseDao {
     }
 
     private void setNullableLong(PreparedStatement ps, int index, Long value) throws SQLException {
-        if (value != null) {
-            ps.setLong(index, value);
-        } else {
-            ps.setNull(index, Types.BIGINT);
-        }
+        if (value != null) ps.setLong(index, value);
+        else ps.setNull(index, Types.BIGINT);
     }
 }

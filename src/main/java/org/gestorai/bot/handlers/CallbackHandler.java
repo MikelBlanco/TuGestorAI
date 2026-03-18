@@ -4,12 +4,12 @@ import org.gestorai.bot.TuGestorBot;
 import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
+import org.gestorai.dao.AutonomoDao;
 import org.gestorai.dao.PresupuestoDao;
-import org.gestorai.dao.UsuarioDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.model.Autonomo;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.Presupuesto;
-import org.gestorai.model.Usuario;
 import org.gestorai.service.EmailService;
 import org.gestorai.service.ExcelService;
 import org.gestorai.service.NumeracionService;
@@ -40,29 +40,14 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Gestiona los callbacks de los botones inline del bot.
- *
- * <p>Callbacks que maneja:</p>
- * <ul>
- *   <li>{@code confirmar_presupuesto} — guarda en BD, genera documentos en memoria y pregunta
- *       cómo recibirlos</li>
- *   <li>{@code editar_presupuesto}    — placeholder (fase posterior)</li>
- *   <li>{@code cancelar_presupuesto}  — descarta el borrador</li>
- *   <li>{@code rgpd_acepto}           — el usuario acepta el aviso de privacidad, inicia registro</li>
- *   <li>{@code rgpd_rechazo}          — el usuario rechaza; no puede registrarse</li>
- *   <li>{@code doc_telegram}          — envía PDF y Excel por Telegram (con borrado a los 5 min)</li>
- *   <li>{@code doc_email}             — envía PDF y Excel por email</li>
- *   <li>{@code doc_ambos}             — envía PDF y Excel por Telegram y por email</li>
- * </ul>
  */
 public class CallbackHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CallbackHandler.class);
 
-    /** Scheduler compartido para programar el borrado diferido de documentos en Telegram. */
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
             2, r -> { Thread t = new Thread(r, "doc-cleanup"); t.setDaemon(true); return t; });
 
-    /** Segundos hasta el borrado automático de mensajes con documentos. */
     private static final int TTL_DOCS_SEG = leerTtlConfig();
 
     private static int leerTtlConfig() {
@@ -76,7 +61,7 @@ public class CallbackHandler {
 
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
-    private final UsuarioDao usuarioDao = new UsuarioDao();
+    private final AutonomoDao autonomoDao = new AutonomoDao();
     private final NumeracionService numeracionService = new NumeracionService();
     private final PdfService pdfService = new PdfService();
     private final ExcelService excelService = new ExcelService();
@@ -107,7 +92,7 @@ public class CallbackHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Acciones: consentimiento RGPD
+    // Consentimiento RGPD
     // -------------------------------------------------------------------------
 
     private void aceptarRgpd(TuGestorBot bot, long chatId, String callbackId,
@@ -145,7 +130,7 @@ public class CallbackHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Acción: confirmar presupuesto
+    // Confirmar presupuesto
     // -------------------------------------------------------------------------
 
     private void confirmarPresupuesto(TuGestorBot bot, long chatId, String callbackId,
@@ -163,20 +148,19 @@ public class CallbackHandler {
         }
 
         long telegramId = callbackQuery.getFrom().getId();
-        Optional<Usuario> usuarioOpt = usuarioDao.findByTelegramId(telegramId);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
             bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
             return;
         }
 
-        Usuario usuario = usuarioOpt.get();
+        Autonomo autonomo = autonomoOpt.get();
         DatosPresupuesto datos = session.getBorradorPresupuesto();
 
-        // Construir y persistir el presupuesto
         Presupuesto p = new Presupuesto();
-        p.setUsuarioId(usuario.getId());
+        p.setAutonomoId(autonomo.getId());
         p.setClienteNombre(datos.getClienteNombre());
-        p.setDescripcion(datos.getDescripcion());
+        p.setNotas(datos.getDescripcion());
         p.setSubtotal(datos.calcularSubtotal());
         p.setIvaPorcentaje(datos.getIvaPorcentaje());
         p.setIvaImporte(datos.calcularIvaImporte());
@@ -184,12 +168,10 @@ public class CallbackHandler {
         p.setEstado(Presupuesto.ESTADO_BORRADOR);
         p.setAudioTranscript(session.getTranscripcion());
         p.setLineas(datos.getLineas());
-        p.setNumero(numeracionService.siguienteNumeroPresupuesto(usuario.getId()));
+        p.setNumero(numeracionService.siguienteNumeroPresupuesto(autonomo.getId()));
 
         Presupuesto guardado = presupuestoDao.crear(p);
-        usuarioDao.incrementarContadorPresupuestos(usuario.getId());
 
-        // Reemplazar el borrador por un resumen breve (los datos del cliente desaparecen del chat)
         String resumen = String.format("✅ Presupuesto <b>%s</b> generado (%.2f€)",
                 guardado.getNumero(), guardado.getTotal());
         reemplazarBorrador(bot, callbackQuery, resumen);
@@ -198,16 +180,14 @@ public class CallbackHandler {
                 .text("¡Presupuesto guardado!")
                 .build());
 
-        // Generar PDF y Excel en memoria y preguntar cómo recibirlos
         try {
             String base = "presupuesto_" + guardado.getNumero().replace("/", "-");
             String pdfNombre  = base + ".pdf";
             String xlsxNombre = base + ".xlsx";
 
-            byte[] pdfBytes  = pdfService.generarPresupuesto(guardado, usuario);
-            byte[] xlsxBytes = excelService.generarPresupuesto(guardado, usuario);
+            byte[] pdfBytes  = pdfService.generarPresupuesto(guardado, autonomo);
+            byte[] xlsxBytes = excelService.generarPresupuesto(guardado, autonomo);
 
-            // Guardar documentos en sesión hasta que el usuario elija cómo recibirlos
             session.setPendingPdfBytes(pdfBytes);
             session.setPendingPdfNombre(pdfNombre);
             session.setPendingXlsxBytes(xlsxBytes);
@@ -231,11 +211,11 @@ public class CallbackHandler {
                     .build());
         }
 
-        log.info("Presupuesto confirmado id={} usuario={}", guardado.getId(), usuario.getId());
+        log.info("Presupuesto confirmado id={} autonomo={}", guardado.getId(), autonomo.getId());
     }
 
     // -------------------------------------------------------------------------
-    // Acción: editar
+    // Editar
     // -------------------------------------------------------------------------
 
     private void iniciarEdicion(TuGestorBot bot, long chatId, String callbackId,
@@ -267,7 +247,7 @@ public class CallbackHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Acción: cancelar presupuesto
+    // Cancelar
     // -------------------------------------------------------------------------
 
     private void cancelarPresupuesto(TuGestorBot bot, long chatId, String callbackId,
@@ -288,7 +268,7 @@ public class CallbackHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Acciones: opciones de envío de documentos
+    // Opciones de envío de documentos
     // -------------------------------------------------------------------------
 
     private void enviarDocTelegram(TuGestorBot bot, long chatId, String callbackId,
@@ -335,22 +315,22 @@ public class CallbackHandler {
         }
 
         long telegramId = callbackQuery.getFrom().getId();
-        Optional<Usuario> usuarioOpt = usuarioDao.findByTelegramId(telegramId);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
             session.reset();
             quitarBotones(bot, callbackQuery);
             bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
             return;
         }
 
-        Usuario usuario = usuarioOpt.get();
+        Autonomo autonomo = autonomoOpt.get();
 
-        if (usuario.getEmail() == null || usuario.getEmail().isBlank()) {
+        if (autonomo.getEmail() == null || autonomo.getEmail().isBlank()) {
             bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
             bot.execute(SendMessage.builder().chatId(chatId)
                     .text("No tienes email configurado. Actualízalo con /perfil o elige 📱 Telegram.")
                     .build());
-            return; // sesión no se resetea: el usuario puede pulsar otro botón
+            return;
         }
 
         if (rateLimiter.comprobarEmail(telegramId) == RateLimiter.Resultado.LIMITE_EMAIL_DIA) {
@@ -359,14 +339,14 @@ public class CallbackHandler {
                     .text(String.format("📧 Has alcanzado el límite de %d emails hoy. " +
                           "Elige 📱 Telegram o inténtalo mañana.", rateLimiter.maxEmailsDia))
                     .build());
-            return; // sesión no se resetea
+            return;
         }
 
         session.reset();
         quitarBotones(bot, callbackQuery);
         bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
 
-        enviarDocsPorEmail(bot, chatId, telegramId, usuario, pdfBytes, pdfNombre, xlsxBytes, xlsxNombre);
+        enviarDocsPorEmail(bot, chatId, telegramId, autonomo, pdfBytes, pdfNombre, xlsxBytes, xlsxNombre);
     }
 
     private void enviarDocAmbos(TuGestorBot bot, long chatId, String callbackId,
@@ -388,8 +368,8 @@ public class CallbackHandler {
         }
 
         long telegramId = callbackQuery.getFrom().getId();
-        Optional<Usuario> usuarioOpt = usuarioDao.findByTelegramId(telegramId);
-        if (usuarioOpt.isEmpty()) {
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
             session.reset();
             quitarBotones(bot, callbackQuery);
             bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
@@ -400,15 +380,13 @@ public class CallbackHandler {
         quitarBotones(bot, callbackQuery);
         bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
 
-        // Siempre enviar por Telegram
         enviarDocsPorTelegram(bot, chatId, pdfBytes, pdfNombre, xlsxBytes, xlsxNombre);
 
-        // Intentar enviar por email; si falla o no tiene email, informar sin bloquear
-        Usuario usuario = usuarioOpt.get();
-        if (usuario.getEmail() != null && !usuario.getEmail().isBlank()
+        Autonomo autonomo = autonomoOpt.get();
+        if (autonomo.getEmail() != null && !autonomo.getEmail().isBlank()
                 && rateLimiter.comprobarEmail(telegramId) != RateLimiter.Resultado.LIMITE_EMAIL_DIA) {
-            enviarDocsPorEmail(bot, chatId, telegramId, usuario, pdfBytes, pdfNombre, xlsxBytes, xlsxNombre);
-        } else if (usuario.getEmail() == null || usuario.getEmail().isBlank()) {
+            enviarDocsPorEmail(bot, chatId, telegramId, autonomo, pdfBytes, pdfNombre, xlsxBytes, xlsxNombre);
+        } else if (autonomo.getEmail() == null || autonomo.getEmail().isBlank()) {
             bot.execute(SendMessage.builder().chatId(chatId)
                     .text("No tienes email configurado, pero los documentos ya están disponibles arriba. " +
                           "Actualiza tu email con /perfil.")
@@ -445,7 +423,7 @@ public class CallbackHandler {
     }
 
     private void enviarDocsPorEmail(TuGestorBot bot, long chatId, long telegramId,
-                                    Usuario usuario,
+                                    Autonomo autonomo,
                                     byte[] pdfBytes, String pdfNombre,
                                     byte[] xlsxBytes, String xlsxNombre) {
         try {
@@ -458,7 +436,7 @@ public class CallbackHandler {
                             "(PDF y Excel).\n\nSaludos,\nTuGestorAI";
 
             String xlsxNombreFinal = xlsxNombre != null ? xlsxNombre : "presupuesto.xlsx";
-            emailService.enviarConAdjuntos(usuario.getEmail(), asunto, cuerpo,
+            emailService.enviarConAdjuntos(autonomo.getEmail(), asunto, cuerpo,
                     new EmailService.Adjunto(pdfBytes, "application/pdf", nombre),
                     new EmailService.Adjunto(xlsxBytes,
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -469,17 +447,17 @@ public class CallbackHandler {
             try {
                 bot.execute(SendMessage.builder()
                         .chatId(chatId)
-                        .text("✉️ Documentos enviados a <b>" + usuario.getEmail() + "</b>.")
+                        .text("✉️ Documentos enviados a <b>" + autonomo.getEmail() + "</b>.")
                         .parseMode("HTML")
                         .build());
             } catch (TelegramApiException e) {
                 log.warn("No se pudo enviar confirmación de email chatId={}", chatId);
             }
 
-            log.info("Presupuesto enviado por email usuario={}", usuario.getId());
+            log.info("Presupuesto enviado por email autonomo={}", autonomo.getId());
 
         } catch (ServiceException e) {
-            log.error("Error enviando email usuario={}: {}", usuario.getId(), e.getMessage());
+            log.error("Error enviando email autonomo={}: {}", autonomo.getId(), e.getMessage());
             try {
                 bot.execute(SendMessage.builder()
                         .chatId(chatId)
@@ -518,10 +496,6 @@ public class CallbackHandler {
     // Helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Programa el borrado de un mensaje de Telegram transcurrido {@link #TTL_DOCS_SEG} segundos.
-     * Se usa para eliminar del chat los mensajes con documentos (PDF/Excel) por privacidad.
-     */
     private void programarBorradoMensaje(TuGestorBot bot, long chatId, int messageId) {
         scheduler.schedule(() -> {
             try {
@@ -537,10 +511,6 @@ public class CallbackHandler {
         }, TTL_DOCS_SEG, TimeUnit.SECONDS);
     }
 
-    /**
-     * Reemplaza el texto del mensaje de borrador por un resumen breve y elimina los botones.
-     * Así los datos del cliente desaparecen del historial del chat.
-     */
     private void reemplazarBorrador(TuGestorBot bot, CallbackQuery callbackQuery, String texto)
             throws TelegramApiException {
         bot.execute(EditMessageText.builder()
@@ -552,7 +522,6 @@ public class CallbackHandler {
                 .build());
     }
 
-    /** Elimina el teclado inline del mensaje original tras pulsar un botón. */
     private void quitarBotones(TuGestorBot bot, CallbackQuery callbackQuery)
             throws TelegramApiException {
         bot.execute(EditMessageReplyMarkup.builder()

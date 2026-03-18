@@ -3,7 +3,7 @@ package org.gestorai.bot;
 import org.gestorai.bot.handlers.CallbackHandler;
 import org.gestorai.bot.handlers.TextHandler;
 import org.gestorai.bot.handlers.VoiceHandler;
-import org.gestorai.dao.UsuarioAutorizadoDao;
+import org.gestorai.dao.AutonomoAutorizadoDao;
 import org.gestorai.util.ConfigUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +23,7 @@ import java.util.Set;
  * al handler correspondiente según el tipo de mensaje.
  *
  * <p>Control de acceso: antes de procesar cualquier update se verifica que
- * el {@code telegram_id} del remitente esté en la tabla {@code usuarios_autorizados}.
+ * el {@code telegram_id} del remitente esté en la tabla {@code autonomos_autorizados}.
  * Los IDs se cachean en memoria con un TTL de 5 minutos para minimizar consultas a la BD.</p>
  */
 public class TuGestorBot extends TelegramLongPollingBot {
@@ -35,7 +35,7 @@ public class TuGestorBot extends TelegramLongPollingBot {
     private final VoiceHandler voiceHandler = new VoiceHandler();
     private final TextHandler textHandler = new TextHandler();
     private final CallbackHandler callbackHandler = new CallbackHandler();
-    private final UsuarioAutorizadoDao usuarioAutorizadoDao = new UsuarioAutorizadoDao();
+    private final AutonomoAutorizadoDao autonomoAutorizadoDao = new AutonomoAutorizadoDao();
 
     /** Conjunto de telegram_ids autorizados (caché en memoria). */
     private volatile Set<Long> autorizados = Collections.emptySet();
@@ -88,16 +88,14 @@ public class TuGestorBot extends TelegramLongPollingBot {
     }
 
     private synchronized void recargarAutorizados() {
-        // Double-checked: otro hilo pudo haber recargado mientras esperábamos el lock
         if (!Instant.now().isAfter(ultimaCargaAuth.plus(TTL_AUTH))) return;
         try {
-            autorizados = usuarioAutorizadoDao.findAllTelegramIds();
+            autorizados = autonomoAutorizadoDao.findAllTelegramIds();
             ultimaCargaAuth = Instant.now();
-            log.info("Cache de usuarios autorizados recargada: {} usuarios", autorizados.size());
+            log.info("Caché de autónomos autorizados recargada: {} registros", autorizados.size());
         } catch (Exception e) {
-            // Mantener la caché anterior; fijar ultimaCargaAuth para no hacer flood a la BD
             ultimaCargaAuth = Instant.now();
-            log.error("Error recargando usuarios autorizados — manteniendo caché anterior", e);
+            log.error("Error recargando autónomos autorizados — manteniendo caché anterior", e);
         }
     }
 

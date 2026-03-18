@@ -3,9 +3,9 @@ package org.gestorai.model;
 import java.time.LocalDateTime;
 
 /**
- * Entidad usuario (autónomo). Corresponde a la tabla {@code usuarios}.
+ * Entidad autónomo. Corresponde a la tabla {@code autonomos}.
  */
-public class Usuario {
+public class Autonomo {
 
     public static final String PLAN_FREE = "free";
     public static final String PLAN_PRO  = "pro";
@@ -15,28 +15,29 @@ public class Usuario {
     private Long id;
     private Long telegramId;
     private String nombre;
-    private String nif;
-    private String direccion;
-    private String telefono;
-    private String email;
+    private String nif;            // cifrado AES-256-GCM
+    private String direccion;      // cifrado AES-256-GCM
+    private String telefono;       // cifrado AES-256-GCM
+    private String email;          // cifrado AES-256-GCM
     private String nombreComercial;
-    private String logoUrl;
     private String plan;
+    /** Número de presupuestos del mes en curso. No persiste en BD; se carga con una consulta. */
     private int presupuestosMes;
-    private LocalDateTime consentimientoAt;
+    private LocalDateTime rgpdAceptadoAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    public Usuario() {}
+    public Autonomo() {}
 
-    /** Devuelve true si el usuario tiene plan de pago. */
+    /** Devuelve true si el autónomo tiene plan de pago. */
     public boolean esPro() {
         return PLAN_PRO.equals(plan);
     }
 
     /**
-     * Devuelve true si el usuario free puede crear más presupuestos este mes.
-     * Los usuarios pro siempre pueden.
+     * Devuelve true si el autónomo puede crear más presupuestos este mes.
+     * Requiere que {@code presupuestosMes} haya sido cargado previamente mediante
+     * {@link org.gestorai.dao.PresupuestoDao#contarPorAutonomoEnMes(long)}.
      */
     public boolean puedeCrearPresupuesto() {
         return esPro() || presupuestosMes < LIMITE_PRESUPUESTOS_FREE;
@@ -66,17 +67,14 @@ public class Usuario {
     public String getNombreComercial() { return nombreComercial; }
     public void setNombreComercial(String nombreComercial) { this.nombreComercial = nombreComercial; }
 
-    public String getLogoUrl() { return logoUrl; }
-    public void setLogoUrl(String logoUrl) { this.logoUrl = logoUrl; }
-
     public String getPlan() { return plan; }
     public void setPlan(String plan) { this.plan = plan; }
 
     public int getPresupuestosMes() { return presupuestosMes; }
     public void setPresupuestosMes(int presupuestosMes) { this.presupuestosMes = presupuestosMes; }
 
-    public LocalDateTime getConsentimientoAt() { return consentimientoAt; }
-    public void setConsentimientoAt(LocalDateTime consentimientoAt) { this.consentimientoAt = consentimientoAt; }
+    public LocalDateTime getRgpdAceptadoAt() { return rgpdAceptadoAt; }
+    public void setRgpdAceptadoAt(LocalDateTime rgpdAceptadoAt) { this.rgpdAceptadoAt = rgpdAceptadoAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

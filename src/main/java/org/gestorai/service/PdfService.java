@@ -7,7 +7,7 @@ import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Factura;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Presupuesto;
-import org.gestorai.model.Usuario;
+import org.gestorai.model.Autonomo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +54,7 @@ public class PdfService {
      * @return bytes del PDF generado
      * @throws ServiceException si hay algún error al generar el documento
      */
-    public byte[] generarPresupuesto(Presupuesto presupuesto, Usuario usuario) {
+    public byte[] generarPresupuesto(Presupuesto presupuesto, Autonomo usuario) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (Document doc = new Document(PageSize.A4, 50, 50, 50, 50)) {
             PdfWriter.getInstance(doc, baos);
@@ -62,7 +62,7 @@ public class PdfService {
 
             agregarCabecera(doc, usuario);
             agregarTitulo(doc, "PRESUPUESTO", presupuesto.getNumero(), presupuesto.getCreatedAt());
-            agregarBloqueCliente(doc, presupuesto.getClienteNombre(), presupuesto.getDescripcion());
+            agregarBloqueCliente(doc, presupuesto.getClienteNombre(), presupuesto.getNotas());
             agregarTablaConceptos(doc, presupuesto.getLineas());
             agregarTotalesPresupuesto(doc, presupuesto);
             agregarPiePresupuesto(doc, presupuesto.getIvaPorcentaje());
@@ -87,7 +87,7 @@ public class PdfService {
      * @return bytes del PDF generado
      * @throws ServiceException si hay algún error al generar el documento
      */
-    public byte[] generarFactura(Factura factura, Usuario usuario) {
+    public byte[] generarFactura(Factura factura, Autonomo usuario) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (Document doc = new Document(PageSize.A4, 50, 50, 50, 50)) {
             PdfWriter.getInstance(doc, baos);
@@ -95,7 +95,7 @@ public class PdfService {
 
             agregarCabecera(doc, usuario);
             agregarTitulo(doc, "FACTURA", factura.getNumero(), factura.getCreatedAt());
-            agregarBloqueCliente(doc, factura.getClienteNombre(), factura.getDescripcion());
+            agregarBloqueCliente(doc, factura.getClienteNombre(), factura.getNotas());
             agregarTablaConceptos(doc, factura.getLineas());
             agregarTotalesFactura(doc, factura);
             agregarPieFactura(doc, factura, usuario);
@@ -113,7 +113,7 @@ public class PdfService {
     // Secciones comunes
     // -------------------------------------------------------------------------
 
-    private void agregarCabecera(Document doc, Usuario usuario) throws DocumentException {
+    private void agregarCabecera(Document doc, Autonomo usuario) throws DocumentException {
         PdfPTable tabla = new PdfPTable(2);
         tabla.setWidthPercentage(100);
         tabla.setWidths(new float[]{1, 2});
@@ -265,7 +265,7 @@ public class PdfService {
         doc.add(pie);
     }
 
-    private void agregarPieFactura(Document doc, Factura factura, Usuario usuario)
+    private void agregarPieFactura(Document doc, Factura factura, Autonomo usuario)
             throws DocumentException {
         doc.add(separador());
 

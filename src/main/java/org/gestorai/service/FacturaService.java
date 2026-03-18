@@ -3,10 +3,10 @@ package org.gestorai.service;
 import org.gestorai.dao.FacturaDao;
 import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.model.Autonomo;
 import org.gestorai.model.Factura;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Presupuesto;
-import org.gestorai.model.Usuario;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +17,7 @@ import java.util.List;
 
 /**
  * Lógica de negocio para facturas.
- * Solo los usuarios con plan PRO pueden generar facturas.
+ * Solo los autónomos con plan PRO pueden generar facturas.
  */
 public class FacturaService {
 
@@ -32,17 +32,17 @@ public class FacturaService {
      * Convierte un presupuesto aceptado en una factura.
      *
      * <p>Copia todas las líneas de detalle del presupuesto, aplica IRPF y
-     * calcula los totales. La factura queda en estado {@code borrador}.</p>
+     * calcula los totales. La factura queda en estado {@code BORRADOR}.</p>
      *
-     * @param presupuestoId ID del presupuesto origen
-     * @param usuario       autónomo que emite la factura
+     * @param presupuestoId  ID del presupuesto origen
+     * @param autonomo       autónomo que emite la factura
      * @param irpfPorcentaje retención de IRPF (usa {@link Factura#IRPF_ESTANDAR} si null)
      * @return factura creada y persistida
-     * @throws ServiceException si el usuario no es PRO o el presupuesto no existe
+     * @throws ServiceException si el autónomo no es PRO o el presupuesto no existe
      */
-    public Factura crearDesdePresupuesto(long presupuestoId, Usuario usuario,
+    public Factura crearDesdePresupuesto(long presupuestoId, Autonomo autonomo,
                                          BigDecimal irpfPorcentaje) {
-        if (!usuario.esPro()) {
+        if (!autonomo.esPro()) {
             throw new ServiceException(
                     "La generación de facturas requiere el plan PRO. Usa /plan para más información.");
         }
@@ -50,29 +50,27 @@ public class FacturaService {
         Presupuesto presupuesto = presupuestoDao.findById(presupuestoId)
                 .orElseThrow(() -> new ServiceException("Presupuesto no encontrado: " + presupuestoId));
 
-        if (!presupuesto.getUsuarioId().equals(usuario.getId())) {
+        if (!presupuesto.getAutonomoId().equals(autonomo.getId())) {
             throw new ServiceException("No tienes acceso a ese presupuesto.");
         }
 
         BigDecimal irpf = irpfPorcentaje != null ? irpfPorcentaje : Factura.IRPF_ESTANDAR;
 
         Factura factura = new Factura();
-        factura.setNumero(numeracionService.siguienteNumeroFactura(usuario.getId()));
-        factura.setUsuarioId(usuario.getId());
+        factura.setNumero(numeracionService.siguienteNumeroFactura(autonomo.getId()));
+        factura.setAutonomoId(autonomo.getId());
         factura.setPresupuestoId(presupuestoId);
         factura.setClienteId(presupuesto.getClienteId());
         factura.setClienteNombre(presupuesto.getClienteNombre());
-        factura.setDescripcion(presupuesto.getDescripcion());
+        factura.setNotas(presupuesto.getNotas());
         factura.setEstado(Factura.ESTADO_BORRADOR);
 
-        // Copiar líneas del presupuesto asignándolas a la futura factura
         List<LineaDetalle> lineas = copiarLineas(presupuesto.getLineas());
         factura.setLineas(lineas);
 
-        // Calcular importes
-        BigDecimal subtotal = presupuesto.getSubtotal();
+        BigDecimal subtotal    = presupuesto.getSubtotal();
         BigDecimal ivaPorcentaje = presupuesto.getIvaPorcentaje();
-        BigDecimal ivaImporte = presupuesto.getIvaImporte();
+        BigDecimal ivaImporte  = presupuesto.getIvaImporte();
         BigDecimal irpfImporte = subtotal
                 .multiply(irpf)
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
@@ -87,16 +85,14 @@ public class FacturaService {
 
         Factura guardada = facturaDao.crear(factura);
 
-        // Generar PDF (en memoria; el path ya no se persiste)
         try {
-            pdfService.generarFactura(guardada, usuario);
+            pdfService.generarFactura(guardada, autonomo);
         } catch (Exception e) {
             log.error("Error generando PDF factura id={}", guardada.getId(), e);
             // No relanzamos: la factura está guardada, el PDF se puede regenerar
         }
 
-        // Marcar el presupuesto como aceptado
-        presupuestoDao.actualizarEstado(presupuestoId, Presupuesto.ESTADO_ACEPTADO);
+        presupuestoDao.actualizarEstado(presupuestoId, Presupuesto.ESTADO_FACTURADO);
 
         log.info("Factura creada id={} numero={} desde presupuesto id={}",
                 guardada.getId(), guardada.getNumero(), presupuestoId);
@@ -107,10 +103,6 @@ public class FacturaService {
     // Helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Copia las líneas del presupuesto para la factura, limpiando el ID
-     * y el vínculo con el presupuesto origen.
-     */
     private List<LineaDetalle> copiarLineas(List<LineaDetalle> origen) {
         List<LineaDetalle> copia = new ArrayList<>();
         for (LineaDetalle l : origen) {
