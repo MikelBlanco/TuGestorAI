@@ -10,7 +10,11 @@ import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
+import org.gestorai.model.Presupuesto;
 import org.gestorai.service.ClaudeService;
+import org.gestorai.service.EmailService;
+import org.gestorai.service.ExcelService;
+import org.gestorai.service.PdfService;
 import org.gestorai.util.ConfigUtil;
 import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
@@ -23,7 +27,12 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -40,8 +49,14 @@ public class TextHandler {
     private final AutonomoDao autonomoDao = new AutonomoDao();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
     private final ClaudeService claudeService = new ClaudeService();
+    private final PdfService pdfService = new PdfService();
+    private final ExcelService excelService = new ExcelService();
+    private final EmailService emailService = new EmailService();
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final RateLimiter rateLimiter = RateLimiter.getInstance();
+
+    private static final DateTimeFormatter FMT_FECHA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final int MAX_PRESUPUESTOS_LISTADO = 10;
 
     public void handle(TuGestorBot bot, Message message) throws TelegramApiException {
         long chatId = message.getChatId();
@@ -180,13 +195,19 @@ public class TextHandler {
         String comando = message.getText().split(" ")[0].toLowerCase();
 
         switch (comando) {
-            case "/start"       -> manejarStart(bot, message, session);
-            case "/ayuda"       -> enviarAyuda(bot, chatId);
-            case "/perfil"      -> mostrarPerfil(bot, message);
-            case "/plan"        -> mostrarPlan(bot, message);
-            case "/presupuesto" -> enviarMensaje(bot, chatId,
+            case "/start"         -> manejarStart(bot, message, session);
+            case "/ayuda"         -> enviarAyuda(bot, chatId);
+            case "/perfil"        -> mostrarPerfil(bot, message);
+            case "/plan"          -> mostrarPlan(bot, message);
+            case "/presupuesto"   -> enviarMensaje(bot, chatId,
                     "Envíame un mensaje de voz o escribe directamente los datos del presupuesto.");
-            default             -> enviarMensaje(bot, chatId,
+            case "/presupuestos"  -> listarPresupuestos(bot, message);
+            case "/pendientes"    -> listarPendientes(bot, message);
+            case "/aceptado"      -> cambiarEstado(bot, message, Presupuesto.ESTADO_ACEPTADO);
+            case "/rechazado"     -> cambiarEstado(bot, message, Presupuesto.ESTADO_RECHAZADO);
+            case "/facturado"     -> cambiarEstado(bot, message, Presupuesto.ESTADO_FACTURADO);
+            case "/reenviar"      -> reenviarPresupuesto(bot, message);
+            default               -> enviarMensaje(bot, chatId,
                     "Comando no reconocido. Usa /ayuda para ver los disponibles.");
         }
     }
@@ -248,14 +269,24 @@ public class TextHandler {
                 🎤 <b>Por voz</b> — Envía un audio con los datos
                 ✍️ <b>Por texto</b> — Escribe directamente los datos del presupuesto
 
-                <b>Comandos:</b>
-                /presupuesto — Recordatorio de cómo crear un presupuesto
-                /perfil — Ver y editar tus datos fiscales
+                <b>Consulta:</b>
+                /presupuestos — Lista presupuestos del mes actual
+                /presupuestos marzo — Lista presupuestos de un mes concreto
+                /pendientes — Presupuestos aceptados sin facturar
+
+                <b>Cambio de estado:</b>
+                /aceptado P-2026-0001 — El cliente ha aceptado
+                /rechazado P-2026-0001 — El cliente ha rechazado
+                /facturado P-2026-0001 — Ya facturado en TicketBAI
+                /reenviar P-2026-0001 — Reenviar documentos por email
+
+                <b>Cuenta:</b>
+                /perfil — Ver tus datos fiscales
                 /plan — Ver tu plan actual
                 /ayuda — Mostrar esta ayuda
 
-                <b>Ejemplo:</b>
-                <i>"Presupuesto para María García, cambio de grifo, mano de obra 80 euros, material 40 euros"</i>
+                <b>Ejemplo de presupuesto:</b>
+                <i>"Para María García, cambio de grifo, mano de obra 80 euros, material 40 euros"</i>
                 """;
         enviarMensajeHtml(bot, chatId, ayuda);
     }
@@ -329,6 +360,302 @@ public class TextHandler {
                 }
         );
     }
+
+    // -------------------------------------------------------------------------
+    // Comandos de consulta y cambio de estado
+    // -------------------------------------------------------------------------
+
+    /**
+     * /presupuestos [mes] — Lista presupuestos del mes actual o del mes indicado.
+     * Admite nombres de meses en español: enero, febrero, ... diciembre.
+     */
+    private void listarPresupuestos(TuGestorBot bot, Message message) throws TelegramApiException {
+        long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
+
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
+            enviarMensaje(bot, chatId, "No estás registrado. Usa /start para comenzar.");
+            return;
+        }
+        long autonomoId = autonomoOpt.get().getId();
+
+        String[] partes = message.getText().trim().split("\\s+", 2);
+        LocalDate hoy = LocalDate.now();
+        int year = hoy.getYear();
+        int month = hoy.getMonthValue();
+        String nombreMes = null;
+
+        if (partes.length > 1) {
+            Integer mesParsed = parsearMes(partes[1].trim().toLowerCase());
+            if (mesParsed == null) {
+                enviarMensaje(bot, chatId,
+                        "Mes no reconocido. Usa el nombre en español: enero, febrero, ... diciembre.");
+                return;
+            }
+            month = mesParsed;
+            nombreMes = partes[1].trim();
+            // Si el mes pedido es posterior al actual, asumimos el año anterior
+            if (month > hoy.getMonthValue()) year--;
+        }
+
+        List<Presupuesto> lista = presupuestoDao.listarPorMes(autonomoId, year, month);
+
+        if (lista.isEmpty()) {
+            String periodo = nombreMes != null ? nombreMes + " " + year
+                    : hoy.getMonth().getDisplayName(java.time.format.TextStyle.FULL,
+                            new java.util.Locale("es")) + " " + year;
+            enviarMensaje(bot, chatId, "No hay presupuestos en " + periodo + ".");
+            return;
+        }
+
+        String[] MESES_ES = {"", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+                             "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"};
+        String encabezado = "📋 <b>Presupuestos — " + capitalizar(MESES_ES[month]) + " " + year + "</b>\n\n";
+
+        enviarMensajeHtml(bot, chatId, encabezado + formatearListaPresupuestos(lista, true));
+    }
+
+    /**
+     * /pendientes — Lista presupuestos en estado ACEPTADO pendientes de facturar.
+     */
+    private void listarPendientes(TuGestorBot bot, Message message) throws TelegramApiException {
+        long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
+
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
+            enviarMensaje(bot, chatId, "No estás registrado. Usa /start para comenzar.");
+            return;
+        }
+
+        List<Presupuesto> pendientes = presupuestoDao.listarPendientes(autonomoOpt.get().getId());
+
+        if (pendientes.isEmpty()) {
+            enviarMensaje(bot, chatId, "✅ No tienes presupuestos pendientes de facturar.");
+            return;
+        }
+
+        BigDecimal totalPendiente = pendientes.stream()
+                .map(p -> p.getTotal() != null ? p.getTotal() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        StringBuilder sb = new StringBuilder("📋 <b>Presupuestos aceptados pendientes de facturar:</b>\n\n");
+        sb.append(formatearListaPresupuestos(pendientes, false));
+        sb.append(String.format("\n💰 <b>Total pendiente:</b> %s", formatDinero(totalPendiente)));
+        sb.append("\n\n<i>Usa /facturado P-AAAA-NNNN cuando lo pases a TicketBAI.</i>");
+
+        enviarMensajeHtml(bot, chatId, sb.toString());
+    }
+
+    /**
+     * /aceptado, /rechazado, /facturado — Cambia el estado de un presupuesto.
+     */
+    private void cambiarEstado(TuGestorBot bot, Message message, String nuevoEstado)
+            throws TelegramApiException {
+        long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
+
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
+            enviarMensaje(bot, chatId, "No estás registrado. Usa /start para comenzar.");
+            return;
+        }
+
+        String[] partes = message.getText().trim().split("\\s+", 2);
+        if (partes.length < 2 || partes[1].isBlank()) {
+            enviarMensaje(bot, chatId,
+                    "Indica el número de presupuesto. Ejemplo: /aceptado P-2026-0001");
+            return;
+        }
+
+        String numero = partes[1].trim().toUpperCase();
+        long autonomoId = autonomoOpt.get().getId();
+
+        Optional<Presupuesto> presupuestoOpt = presupuestoDao.findByNumeroYAutonomo(autonomoId, numero);
+        if (presupuestoOpt.isEmpty()) {
+            enviarMensaje(bot, chatId, "No he encontrado el presupuesto " + numero + ".");
+            return;
+        }
+
+        Presupuesto p = presupuestoOpt.get();
+        String estadoActual = p.getEstado();
+
+        if (!esTransicionValida(estadoActual, nuevoEstado)) {
+            enviarMensaje(bot, chatId, String.format(
+                    "No se puede cambiar el estado de %s a %s.\n" +
+                    "El presupuesto está en estado: %s.",
+                    numero, nuevoEstado.toLowerCase(), estadoActual));
+            return;
+        }
+
+        presupuestoDao.actualizarEstado(p.getId(), nuevoEstado);
+        log.info("Estado presupuesto {} cambiado {} → {} por telegramId={}",
+                numero, estadoActual, nuevoEstado, telegramId);
+
+        String emoji = switch (nuevoEstado) {
+            case Presupuesto.ESTADO_ACEPTADO  -> "✅";
+            case Presupuesto.ESTADO_RECHAZADO -> "❌";
+            case Presupuesto.ESTADO_FACTURADO -> "🧾";
+            default -> "✔️";
+        };
+
+        enviarMensaje(bot, chatId, String.format(
+                "%s Presupuesto %s marcado como %s.",
+                emoji, numero, nuevoEstado.toLowerCase()));
+    }
+
+    /**
+     * /reenviar P-AAAA-NNNN — Regenera PDF + Excel y los reenvía por email.
+     */
+    private void reenviarPresupuesto(TuGestorBot bot, Message message) throws TelegramApiException {
+        long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
+
+        Optional<Autonomo> autonomoOpt = autonomoDao.findByTelegramId(telegramId);
+        if (autonomoOpt.isEmpty()) {
+            enviarMensaje(bot, chatId, "No estás registrado. Usa /start para comenzar.");
+            return;
+        }
+
+        Autonomo autonomo = autonomoOpt.get();
+
+        if (autonomo.getEmail() == null || autonomo.getEmail().isBlank()) {
+            enviarMensaje(bot, chatId,
+                    "No tienes email configurado en tu perfil. Usa /perfil para añadirlo.");
+            return;
+        }
+
+        String[] partes = message.getText().trim().split("\\s+", 2);
+        if (partes.length < 2 || partes[1].isBlank()) {
+            enviarMensaje(bot, chatId,
+                    "Indica el número de presupuesto. Ejemplo: /reenviar P-2026-0001");
+            return;
+        }
+
+        String numero = partes[1].trim().toUpperCase();
+
+        Optional<Presupuesto> presupuestoOpt =
+                presupuestoDao.findByNumeroYAutonomo(autonomo.getId(), numero);
+        if (presupuestoOpt.isEmpty()) {
+            enviarMensaje(bot, chatId, "No he encontrado el presupuesto " + numero + ".");
+            return;
+        }
+
+        Presupuesto presupuesto = presupuestoOpt.get();
+
+        bot.execute(SendChatAction.builder()
+                .chatId(chatId)
+                .action(ActionType.TYPING.toString())
+                .build());
+
+        try {
+            byte[] pdfBytes  = pdfService.generarPresupuesto(presupuesto, autonomo);
+            byte[] xlsxBytes = excelService.generarPresupuesto(presupuesto, autonomo);
+
+            emailService.enviarConAdjuntos(
+                    autonomo.getEmail(),
+                    "Presupuesto " + numero + " (reenvío)",
+                    "Adjunto encontrarás el presupuesto " + numero +
+                    " para " + nvl(presupuesto.getClienteNombre()) + ".",
+                    new EmailService.Adjunto(pdfBytes, "application/pdf",
+                            "presupuesto_" + numero + ".pdf"),
+                    new EmailService.Adjunto(xlsxBytes,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "presupuesto_" + numero + ".xlsx")
+            );
+
+            enviarMensaje(bot, chatId, "📧 Presupuesto " + numero +
+                    " reenviado a " + autonomo.getEmail() + ".");
+            log.info("Presupuesto {} reenviado por email a telegramId={}", numero, telegramId);
+
+        } catch (ServiceException e) {
+            log.error("Error reenviando presupuesto {} chatId={}: {}", numero, chatId, e.getMessage());
+            enviarMensaje(bot, chatId, "⚠️ Error al reenviar el presupuesto. Inténtalo de nuevo.");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers de estado y formato de listas
+    // -------------------------------------------------------------------------
+
+    private boolean esTransicionValida(String estadoActual, String nuevoEstado) {
+        return switch (nuevoEstado) {
+            case Presupuesto.ESTADO_ACEPTADO  -> Presupuesto.ESTADO_ENVIADO.equals(estadoActual);
+            case Presupuesto.ESTADO_RECHAZADO -> Presupuesto.ESTADO_ENVIADO.equals(estadoActual);
+            case Presupuesto.ESTADO_FACTURADO -> Presupuesto.ESTADO_ACEPTADO.equals(estadoActual);
+            default -> false;
+        };
+    }
+
+    private String formatearListaPresupuestos(List<Presupuesto> lista, boolean mostrarEstado) {
+        StringBuilder sb = new StringBuilder();
+        LocalDate hoy = LocalDate.now();
+        int mostrados = Math.min(lista.size(), MAX_PRESUPUESTOS_LISTADO);
+
+        for (int i = 0; i < mostrados; i++) {
+            Presupuesto p = lista.get(i);
+            String antiguedad = p.getCreatedAt() != null
+                    ? formatearAntiguedad(p.getCreatedAt().toLocalDate(), hoy) : "";
+            String linea = mostrarEstado
+                    ? String.format("%d. <b>%s</b> | %s | %s | %s\n",
+                            i + 1, p.getNumero(), nvl(p.getClienteNombre()),
+                            formatDinero(p.getTotal()), p.getEstado().toLowerCase())
+                    : String.format("%d. <b>%s</b> | %s | %s | %s\n",
+                            i + 1, p.getNumero(), nvl(p.getClienteNombre()),
+                            formatDinero(p.getTotal()), antiguedad);
+            sb.append(linea);
+        }
+
+        if (lista.size() > MAX_PRESUPUESTOS_LISTADO) {
+            sb.append(String.format("\n<i>... y %d más. Consulta el panel web para el listado completo.</i>",
+                    lista.size() - MAX_PRESUPUESTOS_LISTADO));
+        }
+
+        return sb.toString();
+    }
+
+    private String formatearAntiguedad(LocalDate fecha, LocalDate hoy) {
+        long dias = ChronoUnit.DAYS.between(fecha, hoy);
+        if (dias == 0) return "hoy";
+        if (dias == 1) return "ayer";
+        if (dias < 7) return "hace " + dias + " días";
+        if (dias < 30) return "hace " + (dias / 7) + " semana" + (dias / 7 == 1 ? "" : "s");
+        return fecha.format(FMT_FECHA);
+    }
+
+    private String formatDinero(BigDecimal importe) {
+        if (importe == null) return "0,00 €";
+        return String.format("%,.2f €", importe)
+                .replace(",", "X").replace(".", ",").replace("X", ".");
+    }
+
+    private String capitalizar(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /**
+     * Parsea un nombre de mes en español y devuelve el número de mes (1-12), o null si no se reconoce.
+     */
+    private static Integer parsearMes(String mes) {
+        return MESES_ES.get(mes.toLowerCase());
+    }
+
+    private static final Map<String, Integer> MESES_ES = Map.ofEntries(
+            Map.entry("enero",      1),
+            Map.entry("febrero",    2),
+            Map.entry("marzo",      3),
+            Map.entry("abril",      4),
+            Map.entry("mayo",       5),
+            Map.entry("junio",      6),
+            Map.entry("julio",      7),
+            Map.entry("agosto",     8),
+            Map.entry("septiembre", 9),
+            Map.entry("octubre",   10),
+            Map.entry("noviembre", 11),
+            Map.entry("diciembre", 12)
+    );
 
     // -------------------------------------------------------------------------
     // Flujo de registro

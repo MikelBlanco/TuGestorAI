@@ -117,6 +117,36 @@ public class PresupuestoDao extends BaseDao {
     }
 
     /**
+     * Busca un presupuesto por su número de referencia (ej: P-2026-0001) para un autónomo concreto.
+     * Incluye las líneas de detalle.
+     *
+     * @param autonomoId ID del autónomo (para aislamiento multi-tenant)
+     * @param numero     número de presupuesto (insensible a mayúsculas)
+     * @return el presupuesto con sus líneas, o vacío si no existe o no pertenece al autónomo
+     */
+    public Optional<Presupuesto> findByNumeroYAutonomo(long autonomoId, String numero) {
+        validateAutonomoId(autonomoId);
+        String sql = "SELECT " + COLUMNAS +
+                     " FROM presupuestos WHERE autonomo_id = ? AND UPPER(numero) = UPPER(?)";
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, autonomoId);
+            ps.setString(2, numero);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    Presupuesto p = mapRow(rs);
+                    p.setLineas(findLineas(conn, p.getId()));
+                    return Optional.of(p);
+                }
+            }
+        } catch (SQLException e) {
+            throw new DaoException("Error buscando presupuesto numero=" + numero, e);
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Cuenta los presupuestos creados por un autónomo en un año concreto.
      * Se usa para generar la numeración correlativa anual (P-2026-0001).
      */
