@@ -504,8 +504,8 @@ Antes de considerar completa una funcionalidad, verificar:
 ### Diagrama de estados
 
 ```
-BORRADOR → ENVIADO → ACEPTADO → FACTURADO → COBRADO
-                   → RECHAZADO              → IMPAGADO
+BORRADOR → ENVIADO → ACEPTADO → FACTURADO
+                   → RECHAZADO
          → CANCELADO
 ```
 
@@ -518,8 +518,6 @@ public enum EstadoPresupuesto {
     ACEPTADO,     // El cliente ha aceptado el presupuesto
     RECHAZADO,    // El cliente ha rechazado el presupuesto
     FACTURADO,    // El autónomo ha emitido factura en TicketBAI
-    COBRADO,      // El autónomo ha recibido el pago
-    IMPAGADO,     // Facturado pero no cobrado tras un tiempo
     CANCELADO     // Cancelado por el autónomo antes de enviar
 }
 ```
@@ -533,8 +531,6 @@ public enum EstadoPresupuesto {
 | ENVIADO | ACEPTADO | Autónomo | Comando `/aceptado P-2025-0001` |
 | ENVIADO | RECHAZADO | Autónomo | Comando `/rechazado P-2025-0001` |
 | ACEPTADO | FACTURADO | Autónomo | Comando `/facturado P-2025-0001` |
-| FACTURADO | COBRADO | Autónomo | Comando `/cobrado P-2025-0001` |
-| FACTURADO | IMPAGADO | Autónomo | Comando `/impagado P-2025-0001` |
 
 No se permiten transiciones no listadas. El service debe validar que la transición es válida antes de cambiar el estado.
 
@@ -543,10 +539,7 @@ No se permiten transiciones no listadas. El service debe validar que la transici
 - `/aceptado P-2025-0001` — Marca como aceptado por el cliente
 - `/rechazado P-2025-0001` — Marca como rechazado por el cliente
 - `/facturado P-2025-0001` — Marca como facturado (ya pasado a TicketBAI)
-- `/cobrado P-2025-0001` — Marca como cobrado
-- `/impagado P-2025-0001` — Marca como impagado
 - `/pendientes` — Lista presupuestos en estado ACEPTADO (pendientes de facturar)
-- `/impagados` — Lista presupuestos en estado FACTURADO o IMPAGADO (pendientes de cobrar)
 - `/presupuestos` — Lista presupuestos del mes actual (todos los estados)
 - `/presupuestos [mes]` — Lista de un mes concreto
 - `/reenviar P-2025-0001` — Regenera PDF+Excel y los envía por email
@@ -565,46 +558,30 @@ No se permiten transiciones no listadas. El service debe validar que la transici
 Usa /facturado P-2025-XXXX cuando lo pases a TicketBAI.
 ```
 
-### Comando /impagados
-
-```
-💸 Facturas pendientes de cobro:
-
-1. P-2025-0008 | María García | 520,30€ | facturado hace 25 días
-2. P-2025-0010 | Pedro López | 890,00€ | facturado hace 18 días
-
-💰 Total pendiente de cobro: 1.410,30€
-
-Usa /cobrado P-2025-XXXX cuando recibas el pago.
-```
-
 ## Notificaciones Automáticas
 
 ### Recordatorio semanal (Email)
 
-Cada lunes a las 9:00 (configurable), enviar por email a cada autónomo que tenga presupuestos aceptados sin facturar o facturas pendientes de cobro:
+Cada lunes a las 9:00 (configurable), enviar por email a cada autónomo que tenga presupuestos aceptados sin facturar:
 
 ```
 📊 Recordatorio semanal TuGestorAI
 
-Presupuestos aceptados sin facturar:
+Tienes 3 presupuestos aceptados sin facturar:
 • P-2025-0012 — María García — 520,30€ (hace 12 días)
 • P-2025-0014 — Pedro López — 890,00€ (hace 10 días)
 • P-2025-0019 — Ana Ruiz — 340,00€ (hace 8 días)
 
-💰 Total pendiente de facturar: 1.750,30€
+💰 Total pendiente: 1.750,30€
 
-Facturas pendientes de cobro:
-• P-2025-0008 — María García — 520,30€ (hace 25 días)
-• P-2025-0010 — Pedro López — 890,00€ (hace 18 días)
-
-💸 Total pendiente de cobro: 1.410,30€
+Usa /facturado P-2025-XXXX cuando lo pases a TicketBAI.
+Usa /pendientes para ver la lista completa.
 ```
 
-Si el autónomo no tiene pendientes de facturar ni de cobrar, no enviar nada (no molestar).
+Si el autónomo no tiene pendientes, no enviar nada (no molestar).
 
 Implementación:
-- `NotificacionService.enviarRecordatorioSemanal()` — recorre todos los autónomos con presupuestos en estado ACEPTADO o FACTURADO
+- `NotificacionService.enviarRecordatorioSemanal()` — recorre todos los autónomos con presupuestos en estado ACEPTADO
 - Programado con `ScheduledExecutorService` (no usar cron externo ni Spring Scheduler)
 - Configurable: `notificacion.recordatorio.dia=MONDAY`, `notificacion.recordatorio.hora=09:00`
 
@@ -626,8 +603,6 @@ Presupuestos cancelados: 1
 💰 Total aceptado: 4.890,00€
 💰 Total facturado: 3.920,00€
 💰 Pendiente de facturar: 970,00€
-💸 Total cobrado: 2.800,00€
-💸 Pendiente de cobro: 1.120,00€
 📈 Tasa de conversión: 80%
 ```
 
@@ -714,8 +689,7 @@ TuGestorAI NO genera facturas TicketBAI. La facturación la hace el software cer
 Lo que TuGestorAI sí hace:
 1. El autónomo marca el presupuesto como ACEPTADO (`/aceptado P-2025-0001`)
 2. Cuando factura en su software de TicketBAI, marca como FACTURADO (`/facturado P-2025-0001`)
-3. Cuando recibe el pago, marca como COBRADO (`/cobrado P-2025-0001`)
-4. TuGestorAI lleva el control de qué está pendiente de facturar y de cobrar
+3. TuGestorAI lleva el control de qué está pendiente de facturar
 
 El Excel y PDF del presupuesto sirven como referencia para que el autónomo copie los datos al software de facturación.
 
@@ -727,13 +701,10 @@ El autónomo puede consultar sus documentos por dos vías:
 - `/presupuestos` — Lista presupuestos del mes actual (número, cliente, importe, estado)
 - `/presupuestos [mes]` — Lista de un mes concreto (ej: `/presupuestos marzo`)
 - `/pendientes` — Lista presupuestos ACEPTADOS sin facturar
-- `/impagados` — Lista presupuestos FACTURADOS sin cobrar
 - `/reenviar P-2025-0001` — Regenera PDF+Excel y los envía por email
 - `/aceptado P-2025-0001` — Marca como aceptado
 - `/rechazado P-2025-0001` — Marca como rechazado
 - `/facturado P-2025-0001` — Marca como facturado
-- `/cobrado P-2025-0001` — Marca como cobrado
-- `/impagado P-2025-0001` — Marca como impagado
 - Respuesta como mensaje de texto con formato resumido. Si hay más de 10 resultados, paginar con inline keyboard (◀ Anterior / Siguiente ▶)
 
 **Vía panel web (Vue):**
@@ -741,15 +712,14 @@ El autónomo puede consultar sus documentos por dos vías:
 - Filtros: rango de fechas, estado, cliente
 - Ordenación por fecha, importe o cliente
 - Acción rápida: descargar PDF/Excel, reenviar por email, cambiar estado
-- Resumen mensual: total presupuestado, aceptado, facturado, cobrado, tasa de conversión
+- Resumen mensual: total presupuestado, aceptado, facturado, tasa de conversión
 
 **Consultas SQL base:**
 - Presupuestos del mes: filtrar por `autonomo_id` y `created_at >= date_trunc('month', CURRENT_DATE)`
-- Pendientes de facturar: `WHERE autonomo_id = ? AND estado = 'ACEPTADO'`
-- Pendientes de cobro: `WHERE autonomo_id = ? AND estado IN ('FACTURADO', 'IMPAGADO')`
+- Pendientes: `WHERE autonomo_id = ? AND estado = 'ACEPTADO'`
 - Resumen mensual: `SUM(total)`, `COUNT(*)`, agrupado por estado
 - Siempre ordenar por `created_at DESC`
-- Los DAOs deben ofrecer métodos: `listarPorMes(autonomoId, year, month)`, `listarPendientes(autonomoId)`, `listarImpagados(autonomoId)`, `resumenMensual(autonomoId, year, month)`
+- Los DAOs deben ofrecer métodos: `listarPorMes(autonomoId, year, month)`, `listarPendientes(autonomoId)`, `resumenMensual(autonomoId, year, month)`
 
 ### Límites Freemium
 
@@ -815,7 +785,7 @@ Telegram y email cumplen roles distintos:
 - Envío de PDF y Excel con datos fiscales completos
 - Único canal por donde viajan documentos con NIF, dirección fiscal, etc.
 - Reenvío de documentos cuando se solicita
-- Recordatorio semanal de pendientes de facturar y cobrar
+- Recordatorio semanal de pendientes de facturar
 - Resumen fiscal mensual
 
 **Nunca por Telegram:**
