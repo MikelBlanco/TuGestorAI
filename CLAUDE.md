@@ -1,4 +1,4 @@
-# TuGestorAI
+# PresupuestoAI
 
 Bot de Telegram para autónomos españoles del sector servicios. Permite generar presupuestos y facturas profesionales en PDF mediante mensajes de voz.
 

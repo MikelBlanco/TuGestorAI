@@ -1,6 +1,7 @@
 package org.gestorai.bot;
 
 import org.gestorai.bot.session.SessionManager;
+import org.gestorai.service.NotificacionService;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
@@ -19,6 +20,8 @@ public class BotInitializer implements ServletContextListener {
 
     private static final Logger log = LoggerFactory.getLogger(BotInitializer.class);
 
+    private final NotificacionService notificacionService = new NotificacionService();
+
     @Override
     public void contextInitialized(ServletContextEvent sce) {
         try {
@@ -29,10 +32,13 @@ public class BotInitializer implements ServletContextListener {
             log.error("Error iniciando el bot de Telegram", e);
             throw new RuntimeException("No se pudo iniciar el bot de Telegram", e);
         }
+
+        notificacionService.arrancar();
     }
 
     @Override
     public void contextDestroyed(ServletContextEvent sce) {
+        notificacionService.parar();
         SessionManager.getInstance().shutdown();
         log.info("Bot de Telegram detenido");
     }

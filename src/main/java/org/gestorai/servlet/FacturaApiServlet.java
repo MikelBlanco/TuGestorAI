@@ -6,6 +6,7 @@ import com.google.gson.JsonSerializer;
 import org.gestorai.dao.FacturaDao;
 import org.gestorai.dao.AutonomoDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.filter.AuthFilter;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.Factura;
 import org.gestorai.service.FacturaService;
@@ -190,14 +191,13 @@ public class FacturaApiServlet extends HttpServlet {
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Resuelve el autónomo a partir del {@code autonomo_id} propagado por {@link AuthFilter}.
+     */
     private Optional<Autonomo> resolverAutonomo(HttpServletRequest req) {
-        String header = req.getHeader("X-Telegram-Id");
-        if (header == null || header.isBlank()) return Optional.empty();
-        try {
-            return autonomoDao.findByTelegramId(Long.parseLong(header));
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        Long autonomoId = (Long) req.getAttribute(AuthFilter.REQUEST_AUTONOMO_ID);
+        if (autonomoId == null) return Optional.empty();
+        return autonomoDao.findById(autonomoId);
     }
 
     private long parsearId(String pathInfo, HttpServletResponse resp) throws IOException {

@@ -27,5 +27,14 @@ public enum SessionState {
     REGISTRO_NIF,
 
     /** Se está recogiendo la dirección durante /start. */
-    REGISTRO_DIRECCION
+    REGISTRO_DIRECCION,
+
+    /** Se está recogiendo el email durante /start. */
+    REGISTRO_EMAIL,
+
+    /**
+     * Se ha detectado un cliente con el mismo nombre y se espera que el autónomo
+     * confirme si es el mismo o uno nuevo.
+     */
+    CONFIRMANDO_CLIENTE
 }

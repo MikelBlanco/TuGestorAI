@@ -44,7 +44,7 @@ public class EmailService {
 
             MimeBodyPart texto = new MimeBodyPart();
             texto.setText("Adjunto el presupuesto " + presupuesto.getNumero()
-                + " generado con TuGestorAI.", "UTF-8");
+                + " generado con PresupuestoAI.", "UTF-8");
             multipart.addBodyPart(texto);
 
             MimeBodyPart adjunto = new MimeBodyPart();

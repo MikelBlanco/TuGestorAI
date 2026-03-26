@@ -1,4 +1,4 @@
-# Guía de despliegue — TuGestorAI en VPS
+# Guía de despliegue — PresupuestoAI en VPS
 
 Última actualización: 2026-03-18
 

@@ -5,9 +5,11 @@ import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
 import org.gestorai.dao.AutonomoDao;
+import org.gestorai.dao.ClienteDao;
 import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Autonomo;
+import org.gestorai.model.Cliente;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.model.Presupuesto;
@@ -17,6 +19,7 @@ import org.gestorai.service.ExcelService;
 import org.gestorai.service.PdfService;
 import org.gestorai.util.ConfigUtil;
 import org.gestorai.util.RateLimiter;
+import org.gestorai.util.TokenStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.methods.ActionType;
@@ -48,6 +51,7 @@ public class TextHandler {
 
     private final AutonomoDao autonomoDao = new AutonomoDao();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
+    private final ClienteDao clienteDao = new ClienteDao();
     private final ClaudeService claudeService = new ClaudeService();
     private final PdfService pdfService = new PdfService();
     private final ExcelService excelService = new ExcelService();
@@ -72,11 +76,14 @@ public class TextHandler {
         switch (session.getState()) {
             case PENDIENTE_CONSENTIMIENTO -> enviarMensaje(bot, chatId,
                     "Por favor, acepta o rechaza los términos usando los botones de arriba.");
+            case CONFIRMANDO_CLIENTE -> enviarMensaje(bot, chatId,
+                    "Por favor, responde primero a la pregunta sobre el cliente usando los botones de arriba.");
             case EDITANDO           -> procesarCorreccion(bot, chatId, telegramId,
                                             message.getText().trim(), session);
             case REGISTRO_NOMBRE    -> procesarRegistroNombre(bot, message, session);
             case REGISTRO_NIF       -> procesarRegistroNif(bot, message, session);
             case REGISTRO_DIRECCION -> procesarRegistroDireccion(bot, message, session);
+            case REGISTRO_EMAIL     -> procesarRegistroEmail(bot, message, session);
             case IDLE               -> procesarTextoPresupuesto(bot, message, session);
             default -> enviarMensaje(bot, chatId,
                     "Envíame un audio o escribe los datos del presupuesto, " +
@@ -143,8 +150,26 @@ public class TextHandler {
 
             session.setBorradorPresupuesto(datos);
             session.setTranscripcion(textoPresupuesto);
-            session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
+            // Detección de cliente existente
+            if (datos.getClienteNombre() != null && !datos.getClienteNombre().isBlank()) {
+                List<Cliente> candidatos = clienteDao.buscarPorNombre(autonomo.getId(), datos.getClienteNombre());
+                if (!candidatos.isEmpty()) {
+                    Cliente candidato = candidatos.get(0);
+                    session.setClienteExistenteId(candidato.getId());
+                    session.setState(SessionState.CONFIRMANDO_CLIENTE);
+                    bot.execute(SendMessage.builder()
+                            .chatId(chatId)
+                            .text(formatearPreguntaCliente(candidato))
+                            .parseMode("HTML")
+                            .replyMarkup(crearTecladoClienteExistente())
+                            .build());
+                    return;
+                }
+            }
+
+            session.setClienteExistenteId(null);
+            session.setState(SessionState.ESPERANDO_CONFIRMACION);
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text(formatearBorrador(datos))
@@ -207,6 +232,7 @@ public class TextHandler {
             case "/rechazado"     -> cambiarEstado(bot, message, Presupuesto.ESTADO_RECHAZADO);
             case "/facturado"     -> cambiarEstado(bot, message, Presupuesto.ESTADO_FACTURADO);
             case "/reenviar"      -> reenviarPresupuesto(bot, message);
+            case "/panel"         -> generarTokenPanel(bot, message);
             default               -> enviarMensaje(bot, chatId,
                     "Comando no reconocido. Usa /ayuda para ver los disponibles.");
         }
@@ -247,6 +273,37 @@ public class TextHandler {
                 .build());
     }
 
+    private String formatearPreguntaCliente(Cliente candidato) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("He encontrado un cliente con ese nombre:\n\n");
+        sb.append(String.format("👤 <b>%s</b>\n", candidato.getNombre()));
+        if (candidato.getTelefono() != null && !candidato.getTelefono().isBlank()) {
+            sb.append(String.format("📞 %s\n", maskTelefono(candidato.getTelefono())));
+        }
+        sb.append("\n¿Es la misma persona?");
+        return sb.toString();
+    }
+
+    private InlineKeyboardMarkup crearTecladoClienteExistente() {
+        return InlineKeyboardMarkup.builder()
+                .keyboardRow(List.of(
+                        InlineKeyboardButton.builder()
+                                .text("✅ Sí, usar estos datos")
+                                .callbackData("cliente_si")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("👤 No, es otra persona")
+                                .callbackData("cliente_no")
+                                .build()
+                ))
+                .build();
+    }
+
+    private String maskTelefono(String tel) {
+        if (tel == null || tel.length() < 3) return "***";
+        return "***" + tel.substring(tel.length() - 3);
+    }
+
     private InlineKeyboardMarkup crearTecladoConsentimiento() {
         return InlineKeyboardMarkup.builder()
                 .keyboardRow(List.of(
@@ -283,6 +340,7 @@ public class TextHandler {
                 <b>Cuenta:</b>
                 /perfil — Ver tus datos fiscales
                 /plan — Ver tu plan actual
+                /panel — Obtener token de acceso al panel web
                 /ayuda — Mostrar esta ayuda
 
                 <b>Ejemplo de presupuesto:</b>
@@ -349,6 +407,42 @@ public class TextHandler {
                         enviarMensajeHtml(bot, chatId, texto);
                     } catch (TelegramApiException e) {
                         log.error("Error enviando plan a chatId={}", chatId, e);
+                    }
+                },
+                () -> {
+                    try {
+                        enviarMensaje(bot, chatId, "No estás registrado. Usa /start para comenzar.");
+                    } catch (TelegramApiException e) {
+                        log.error("Error enviando mensaje a chatId={}", chatId, e);
+                    }
+                }
+        );
+    }
+
+    private void generarTokenPanel(TuGestorBot bot, Message message) throws TelegramApiException {
+        long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
+
+        autonomoDao.findByTelegramId(telegramId).ifPresentOrElse(
+                a -> {
+                    String token = TokenStore.getInstance().generarToken(a.getId());
+                    String panelUrl = ConfigUtil.get("panel.url");
+                    String texto = String.format(
+                            """
+                            🔐 <b>Acceso al panel web</b>
+
+                            Tu token de acceso (válido 10 minutos):
+                            <code>%s</code>
+
+                            Accede en: %s
+                            Introduce el token cuando te lo solicite.
+
+                            ⚠️ No compartas este token con nadie.""",
+                            token, panelUrl != null ? panelUrl : "");
+                    try {
+                        enviarMensajeHtml(bot, chatId, texto);
+                    } catch (TelegramApiException e) {
+                        log.error("Error enviando token de panel a chatId={}", chatId, e);
                     }
                 },
                 () -> {
@@ -690,25 +784,47 @@ public class TextHandler {
     private void procesarRegistroDireccion(TuGestorBot bot, Message message, UserSession session)
             throws TelegramApiException {
         long chatId = message.getChatId();
-        long telegramId = message.getFrom().getId();
         String direccion = message.getText().trim();
 
-        String nombre = session.getBorradorPresupuesto().getClienteNombre();
-        String nif    = session.getBorradorPresupuesto().getDescripcion();
+        // Guardar dirección en notas (campo temporal durante el registro)
+        session.getBorradorPresupuesto().setNotas(direccion.equals("-") ? null : direccion);
+        session.setState(SessionState.REGISTRO_EMAIL);
+        enviarMensaje(bot, chatId,
+                "¿Cuál es tu email? Aquí recibirás los presupuestos y facturas en PDF.\n" +
+                "(Es obligatorio para poder enviarte los documentos)");
+    }
+
+    private void procesarRegistroEmail(TuGestorBot bot, Message message, UserSession session)
+            throws TelegramApiException {
+        long chatId = message.getChatId();
+        long telegramId = message.getFrom().getId();
+        String email = message.getText().trim();
+
+        if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            enviarMensaje(bot, chatId,
+                    "El email no parece válido. Introduce una dirección de correo correcta (ej: nombre@ejemplo.com)");
+            return;
+        }
+
+        String nombre   = session.getBorradorPresupuesto().getClienteNombre();
+        String nif      = session.getBorradorPresupuesto().getDescripcion();
+        String direccion = session.getBorradorPresupuesto().getNotas();
 
         Autonomo nuevo = new Autonomo();
         nuevo.setTelegramId(telegramId);
         nuevo.setNombre(nombre);
         nuevo.setNif(nif);
-        nuevo.setDireccion(direccion.equals("-") ? null : direccion);
+        nuevo.setDireccion(direccion);
+        nuevo.setEmail(email);
         nuevo.setPlan(Autonomo.PLAN_FREE);
 
         autonomoDao.crear(nuevo);
         session.reset();
 
-        enviarMensaje(bot, chatId, String.format(
+        enviarMensajeHtml(bot, chatId, String.format(
                 "¡Registrado, %s! Ya puedes enviarme audios o escribirme los datos de tus presupuestos.\n\n" +
-                "Usa /ayuda para ver cómo funciona.", nombre));
+                "📧 Los documentos se enviarán a <b>%s</b>\n\n" +
+                "Usa /ayuda para ver cómo funciona.", nombre, email));
     }
 
     // -------------------------------------------------------------------------

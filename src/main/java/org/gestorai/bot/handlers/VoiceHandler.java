@@ -5,9 +5,11 @@ import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
 import org.gestorai.dao.AutonomoDao;
+import org.gestorai.dao.ClienteDao;
 import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Autonomo;
+import org.gestorai.model.Cliente;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.LineaDetalle;
 import org.gestorai.service.ClaudeService;
@@ -45,6 +47,7 @@ public class VoiceHandler {
     private final ClaudeService claudeService = new ClaudeService();
     private final AutonomoDao autonomoDao = new AutonomoDao();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
+    private final ClienteDao clienteDao = new ClienteDao();
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final RateLimiter rateLimiter = RateLimiter.getInstance();
 
@@ -81,8 +84,15 @@ public class VoiceHandler {
             return;
         }
 
-        // 3. Verificar límite del plan freemium
+        // 3. Verificar estado de sesión
         UserSession session = sessionManager.getOrCreate(chatId);
+        if (session.getState() == SessionState.CONFIRMANDO_CLIENTE) {
+            bot.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text("Por favor, responde primero a la pregunta sobre el cliente usando los botones de arriba.")
+                    .build());
+            return;
+        }
         boolean esEdicion = session.getState() == SessionState.EDITANDO;
         if (!esEdicion) {
             int presupuestosMes = presupuestoDao.contarPorAutonomoEnMes(autonomo.getId());
@@ -144,8 +154,26 @@ public class VoiceHandler {
 
                 session.setBorradorPresupuesto(datos);
                 session.setTranscripcion(transcripcion);
-                session.setState(SessionState.ESPERANDO_CONFIRMACION);
 
+                // Detección de cliente existente
+                if (datos.getClienteNombre() != null && !datos.getClienteNombre().isBlank()) {
+                    List<Cliente> candidatos = clienteDao.buscarPorNombre(autonomo.getId(), datos.getClienteNombre());
+                    if (!candidatos.isEmpty()) {
+                        Cliente candidato = candidatos.get(0);
+                        session.setClienteExistenteId(candidato.getId());
+                        session.setState(SessionState.CONFIRMANDO_CLIENTE);
+                        bot.execute(SendMessage.builder()
+                                .chatId(chatId)
+                                .text(formatearPreguntaCliente(candidato))
+                                .parseMode("HTML")
+                                .replyMarkup(crearTecladoClienteExistente())
+                                .build());
+                        return;
+                    }
+                }
+
+                session.setClienteExistenteId(null);
+                session.setState(SessionState.ESPERANDO_CONFIRMACION);
                 bot.execute(SendMessage.builder()
                         .chatId(chatId)
                         .text(formatearBorrador(datos))
@@ -167,6 +195,41 @@ public class VoiceHandler {
                     .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo enviando otro audio.")
                     .build());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cliente existente
+    // -------------------------------------------------------------------------
+
+    private String formatearPreguntaCliente(Cliente candidato) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("He encontrado un cliente con ese nombre:\n\n");
+        sb.append(String.format("👤 <b>%s</b>\n", candidato.getNombre()));
+        if (candidato.getTelefono() != null && !candidato.getTelefono().isBlank()) {
+            sb.append(String.format("📞 %s\n", maskTelefono(candidato.getTelefono())));
+        }
+        sb.append("\n¿Es la misma persona?");
+        return sb.toString();
+    }
+
+    private InlineKeyboardMarkup crearTecladoClienteExistente() {
+        return InlineKeyboardMarkup.builder()
+                .keyboardRow(List.of(
+                        InlineKeyboardButton.builder()
+                                .text("✅ Sí, usar estos datos")
+                                .callbackData("cliente_si")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("👤 No, es otra persona")
+                                .callbackData("cliente_no")
+                                .build()
+                ))
+                .build();
+    }
+
+    private String maskTelefono(String tel) {
+        if (tel == null || tel.length() < 3) return "***";
+        return "***" + tel.substring(tel.length() - 3);
     }
 
     // -------------------------------------------------------------------------

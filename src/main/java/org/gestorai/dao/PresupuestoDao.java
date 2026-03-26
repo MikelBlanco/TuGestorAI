@@ -198,6 +198,83 @@ public class PresupuestoDao extends BaseDao {
         return 0;
     }
 
+    /**
+     * Calcula un resumen de presupuestos de un autónomo en un mes concreto,
+     * agrupado por estado.
+     *
+     * @param autonomoId ID del autónomo
+     * @param year       año (ej: 2026)
+     * @param month      mes (1-12)
+     */
+    public ResumenMensual resumenMensual(long autonomoId, int year, int month) {
+        validateAutonomoId(autonomoId);
+        String sql = """
+                SELECT estado, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total_suma
+                  FROM presupuestos
+                 WHERE autonomo_id = ?
+                   AND EXTRACT(YEAR  FROM created_at) = ?
+                   AND EXTRACT(MONTH FROM created_at) = ?
+                 GROUP BY estado
+                """;
+        int generados = 0, enviados = 0, aceptados = 0, rechazados = 0, facturados = 0, cancelados = 0;
+        java.math.BigDecimal totalPresupuestado = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal totalAceptado      = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal totalFacturado     = java.math.BigDecimal.ZERO;
+
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, autonomoId);
+            ps.setInt(2, year);
+            ps.setInt(3, month);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String estado = rs.getString("estado");
+                    int cantidad = rs.getInt("cantidad");
+                    java.math.BigDecimal suma = rs.getBigDecimal("total_suma");
+
+                    generados += cantidad;
+                    totalPresupuestado = totalPresupuestado.add(suma);
+
+                    switch (estado) {
+                        case Presupuesto.ESTADO_ENVIADO   -> enviados   = cantidad;
+                        case Presupuesto.ESTADO_ACEPTADO  -> { aceptados  = cantidad; totalAceptado  = totalAceptado.add(suma); }
+                        case Presupuesto.ESTADO_RECHAZADO -> rechazados = cantidad;
+                        case Presupuesto.ESTADO_FACTURADO -> { facturados = cantidad; totalFacturado = totalFacturado.add(suma); }
+                        case Presupuesto.ESTADO_CANCELADO -> cancelados = cantidad;
+                        default -> {} // BORRADOR u otros estados futuros
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new DaoException("Error calculando resumen mensual autonomo=" + autonomoId, e);
+        }
+
+        return new ResumenMensual(generados, enviados, aceptados, rechazados, facturados, cancelados,
+                totalPresupuestado, totalAceptado, totalFacturado);
+    }
+
+    /**
+     * Resumen de presupuestos de un mes, agrupado por estado.
+     *
+     * @param generados          total de presupuestos creados en el mes
+     * @param enviados           presupuestos confirmados y enviados al cliente
+     * @param aceptados          presupuestos aceptados por el cliente (pendientes de facturar)
+     * @param rechazados         presupuestos rechazados por el cliente
+     * @param facturados         presupuestos ya facturados en TicketBAI
+     * @param cancelados         presupuestos cancelados antes de enviar
+     * @param totalPresupuestado suma total de todos los presupuestos del mes
+     * @param totalAceptado      suma de los presupuestos en estado ACEPTADO
+     * @param totalFacturado     suma de los presupuestos en estado FACTURADO
+     */
+    public record ResumenMensual(
+            int generados, int enviados, int aceptados, int rechazados, int facturados, int cancelados,
+            java.math.BigDecimal totalPresupuestado,
+            java.math.BigDecimal totalAceptado,
+            java.math.BigDecimal totalFacturado
+    ) {}
+
     // -------------------------------------------------------------------------
     // Escritura
     // -------------------------------------------------------------------------

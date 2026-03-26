@@ -5,9 +5,11 @@ import org.gestorai.bot.session.SessionManager;
 import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
 import org.gestorai.dao.AutonomoDao;
+import org.gestorai.dao.ClienteDao;
 import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Autonomo;
+import org.gestorai.model.Cliente;
 import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.Presupuesto;
 import org.gestorai.service.EmailService;
@@ -62,6 +64,7 @@ public class CallbackHandler {
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final PresupuestoDao presupuestoDao = new PresupuestoDao();
     private final AutonomoDao autonomoDao = new AutonomoDao();
+    private final ClienteDao clienteDao = new ClienteDao();
     private final NumeracionService numeracionService = new NumeracionService();
     private final PdfService pdfService = new PdfService();
     private final ExcelService excelService = new ExcelService();
@@ -78,6 +81,8 @@ public class CallbackHandler {
         switch (data) {
             case "rgpd_acepto"           -> aceptarRgpd(bot, chatId, callbackId, session, callbackQuery);
             case "rgpd_rechazo"          -> rechazarRgpd(bot, chatId, callbackId, session, callbackQuery);
+            case "cliente_si"            -> confirmarClienteExistente(bot, chatId, callbackId, session, callbackQuery);
+            case "cliente_no"            -> descartarClienteExistente(bot, chatId, callbackId, session, callbackQuery);
             case "confirmar_presupuesto" -> confirmarPresupuesto(bot, chatId, callbackId, session, callbackQuery);
             case "editar_presupuesto"    -> iniciarEdicion(bot, chatId, callbackId, session, callbackQuery);
             case "cancelar_presupuesto"  -> cancelarPresupuesto(bot, chatId, callbackId, session, callbackQuery);
@@ -130,6 +135,56 @@ public class CallbackHandler {
     }
 
     // -------------------------------------------------------------------------
+    // Confirmación de cliente existente
+    // -------------------------------------------------------------------------
+
+    private void confirmarClienteExistente(TuGestorBot bot, long chatId, String callbackId,
+                                           UserSession session, CallbackQuery callbackQuery)
+            throws TelegramApiException {
+
+        if (session.getState() != SessionState.CONFIRMANDO_CLIENTE
+                || session.getBorradorPresupuesto() == null) {
+            bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
+            return;
+        }
+
+        // El clienteExistenteId ya está en la sesión; solo cambiamos al estado siguiente
+        session.setState(SessionState.ESPERANDO_CONFIRMACION);
+        reemplazarBorrador(bot, callbackQuery, "✅ Cliente vinculado.");
+        bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
+
+        bot.execute(SendMessage.builder()
+                .chatId(chatId)
+                .text(formatearBorrador(session.getBorradorPresupuesto()))
+                .parseMode("HTML")
+                .replyMarkup(crearTecladoConfirmacion())
+                .build());
+    }
+
+    private void descartarClienteExistente(TuGestorBot bot, long chatId, String callbackId,
+                                           UserSession session, CallbackQuery callbackQuery)
+            throws TelegramApiException {
+
+        if (session.getState() != SessionState.CONFIRMANDO_CLIENTE
+                || session.getBorradorPresupuesto() == null) {
+            bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
+            return;
+        }
+
+        session.setClienteExistenteId(null);
+        session.setState(SessionState.ESPERANDO_CONFIRMACION);
+        reemplazarBorrador(bot, callbackQuery, "👤 Nuevo cliente.");
+        bot.execute(AnswerCallbackQuery.builder().callbackQueryId(callbackId).build());
+
+        bot.execute(SendMessage.builder()
+                .chatId(chatId)
+                .text(formatearBorrador(session.getBorradorPresupuesto()))
+                .parseMode("HTML")
+                .replyMarkup(crearTecladoConfirmacion())
+                .build());
+    }
+
+    // -------------------------------------------------------------------------
     // Confirmar presupuesto
     // -------------------------------------------------------------------------
 
@@ -157,8 +212,11 @@ public class CallbackHandler {
         Autonomo autonomo = autonomoOpt.get();
         DatosPresupuesto datos = session.getBorradorPresupuesto();
 
+        Long clienteId = resolverCliente(autonomo.getId(), datos, session);
+
         Presupuesto p = new Presupuesto();
         p.setAutonomoId(autonomo.getId());
+        p.setClienteId(clienteId);
         p.setClienteNombre(datos.getClienteNombre());
         p.setNotas(datos.getDescripcion());
         p.setSubtotal(datos.calcularSubtotal());
@@ -467,6 +525,82 @@ public class CallbackHandler {
                 log.warn("No se pudo enviar aviso de fallo de email chatId={}", chatId);
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Gestión de cliente
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resuelve el cliente a vincular al presupuesto.
+     * Si el autónomo confirmó un cliente existente se usa su ID.
+     * Si no, se crea un nuevo cliente a partir de los datos del borrador.
+     */
+    private Long resolverCliente(long autonomoId, DatosPresupuesto datos, UserSession session) {
+        if (session.getClienteExistenteId() != null) {
+            return session.getClienteExistenteId();
+        }
+        if (datos.getClienteNombre() == null || datos.getClienteNombre().isBlank()) {
+            return null;
+        }
+        Cliente c = new Cliente();
+        c.setAutonomoId(autonomoId);
+        c.setNombre(datos.getClienteNombre());
+        c.setTelefono(datos.getClienteTelefono());
+        c.setEmail(datos.getClienteEmail());
+        return clienteDao.crear(c).getId();
+    }
+
+    // -------------------------------------------------------------------------
+    // Formato de borrador (para presentar tras resolver cliente)
+    // -------------------------------------------------------------------------
+
+    private String formatearBorrador(DatosPresupuesto datos) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<b>📋 Borrador de presupuesto</b>\n\n");
+        sb.append(String.format("👤 <b>Cliente:</b> %s\n", nvl(datos.getClienteNombre())));
+
+        if (datos.getDescripcion() != null) {
+            sb.append(String.format("📝 <b>Descripción:</b> %s\n", datos.getDescripcion()));
+        }
+
+        if (!datos.getLineas().isEmpty()) {
+            sb.append("\n<b>Conceptos:</b>\n");
+            for (var l : datos.getLineas()) {
+                sb.append(String.format("  • %s: <b>%.2f €</b>\n", l.getConcepto(), l.getImporte()));
+            }
+        }
+
+        sb.append(String.format("\n💶 <b>Subtotal:</b> %.2f €", datos.calcularSubtotal()));
+        sb.append(String.format("\n🧾 <b>IVA (%s%%):</b> %.2f €",
+                datos.getIvaPorcentaje().stripTrailingZeros().toPlainString(),
+                datos.calcularIvaImporte()));
+        sb.append(String.format("\n✅ <b>Total:</b> %.2f €", datos.calcularTotal()));
+        sb.append("\n\n¿Es correcto?");
+        return sb.toString();
+    }
+
+    private String nvl(String valor) {
+        return valor != null ? valor : "—";
+    }
+
+    private InlineKeyboardMarkup crearTecladoConfirmacion() {
+        return InlineKeyboardMarkup.builder()
+                .keyboardRow(List.of(
+                        InlineKeyboardButton.builder()
+                                .text("✅ Confirmar")
+                                .callbackData("confirmar_presupuesto")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("✏️ Editar")
+                                .callbackData("editar_presupuesto")
+                                .build(),
+                        InlineKeyboardButton.builder()
+                                .text("❌ Cancelar")
+                                .callbackData("cancelar_presupuesto")
+                                .build()
+                ))
+                .build();
     }
 
     // -------------------------------------------------------------------------

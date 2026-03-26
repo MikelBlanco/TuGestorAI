@@ -1,12 +1,12 @@
 ---
 name: tugestorai
 description: >
-  Skill para desarrollar TuGestorAI, un bot de Telegram para autónomos españoles que genera
+  Skill para desarrollar PresupuestoAI, un bot de Telegram para autónomos españoles que genera
   presupuestos y facturas profesionales en PDF mediante mensajes de voz. Stack: Java 21 + Servlets/Tomcat
   (sin Spring), Vue 3 frontend, PostgreSQL, OpenPDF, TelegramBots (rubenlagus), Whisper API para
   transcripción de voz, y Claude API (Haiku) para estructuración de datos.
   
-  Usa esta skill SIEMPRE que trabajes en el proyecto TuGestorAI o en cualquier tarea relacionada con:
+  Usa esta skill SIEMPRE que trabajes en el proyecto PresupuestoAI o en cualquier tarea relacionada con:
   bot de Telegram en Java, generación de presupuestos/facturas PDF, transcripción de audio con Whisper,
   integración con Claude API, servlets Java sin Spring, o cualquier archivo dentro del repositorio
   tugestorai. También cuando el usuario mencione "presupuestos", "facturas", "bot telegram",
@@ -15,11 +15,11 @@ description: >
   proyecto pero trabaja en archivos o patrones que coincidan con esta arquitectura.
 ---
 
-# TuGestorAI - Skill de Desarrollo
+# PresupuestoAI - Skill de Desarrollo
 
 ## Visión del Proyecto
 
-TuGestorAI es un bot de Telegram que permite a autónomos españoles del sector servicios (fontaneros,
+PresupuestoAI es un bot de Telegram que permite a autónomos españoles del sector servicios (fontaneros,
 electricistas, instaladores) generar presupuestos y facturas profesionales en PDF mediante mensajes
 de voz, directamente desde su lugar de trabajo.
 
@@ -478,7 +478,7 @@ Cuando Claude extrae el nombre del cliente del audio/texto, antes de crear un nu
 
 ## Aislamiento de Datos (Multi-tenant)
 
-TuGestorAI es multi-tenant: varios autónomos usan el mismo bot y la misma BD. Cada autónomo solo debe ver y acceder a SUS datos.
+PresupuestoAI es multi-tenant: varios autónomos usan el mismo bot y la misma BD. Cada autónomo solo debe ver y acceder a SUS datos.
 
 ### Reglas de aislamiento
 
@@ -565,7 +565,7 @@ Usa /facturado P-2025-XXXX cuando lo pases a TicketBAI.
 Cada lunes a las 9:00 (configurable), enviar por email a cada autónomo que tenga presupuestos aceptados sin facturar:
 
 ```
-📊 Recordatorio semanal TuGestorAI
+📊 Recordatorio semanal PresupuestoAI
 
 Tienes 3 presupuestos aceptados sin facturar:
 • P-2025-0012 — María García — 520,30€ (hace 12 días)
@@ -684,12 +684,12 @@ En TextHandler: si el mensaje no empieza por `/` y el autónomo está en estado 
 
 ### Flujo: Presupuesto → Factura (TicketBAI)
 
-TuGestorAI NO genera facturas TicketBAI. La facturación la hace el software certificado del autónomo.
+PresupuestoAI NO genera facturas TicketBAI. La facturación la hace el software certificado del autónomo.
 
-Lo que TuGestorAI sí hace:
+Lo que PresupuestoAI sí hace:
 1. El autónomo marca el presupuesto como ACEPTADO (`/aceptado P-2025-0001`)
 2. Cuando factura en su software de TicketBAI, marca como FACTURADO (`/facturado P-2025-0001`)
-3. TuGestorAI lleva el control de qué está pendiente de facturar
+3. PresupuestoAI lleva el control de qué está pendiente de facturar
 
 El Excel y PDF del presupuesto sirven como referencia para que el autónomo copie los datos al software de facturación.
 

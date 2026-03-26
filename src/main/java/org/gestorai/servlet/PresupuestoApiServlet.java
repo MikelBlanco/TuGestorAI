@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSerializer;
 import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.dao.AutonomoDao;
+import org.gestorai.filter.AuthFilter;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.Presupuesto;
 import jakarta.servlet.ServletException;
@@ -151,17 +152,12 @@ public class PresupuestoApiServlet extends HttpServlet {
     // -------------------------------------------------------------------------
 
     /**
-     * Resuelve el autónomo a partir del Telegram-ID enviado en la cabecera {@code X-Telegram-Id}.
-     * TODO: sustituir por autenticación real (JWT / sesión) cuando se implemente el panel web.
+     * Resuelve el autónomo a partir del {@code autonomo_id} propagado por {@link AuthFilter}.
      */
     private Optional<Autonomo> resolverAutonomo(HttpServletRequest req) {
-        String header = req.getHeader("X-Telegram-Id");
-        if (header == null || header.isBlank()) return Optional.empty();
-        try {
-            return autonomoDao.findByTelegramId(Long.parseLong(header));
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        Long autonomoId = (Long) req.getAttribute(AuthFilter.REQUEST_AUTONOMO_ID);
+        if (autonomoId == null) return Optional.empty();
+        return autonomoDao.findById(autonomoId);
     }
 
     private long parsearId(String pathInfo, HttpServletResponse resp) throws IOException {

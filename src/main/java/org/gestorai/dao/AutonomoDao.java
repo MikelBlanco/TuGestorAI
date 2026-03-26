@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -40,6 +42,25 @@ public class AutonomoDao extends BaseDao {
 
         } catch (SQLException e) {
             throw new DaoException("Error buscando autónomo id=" + id, e);
+        }
+    }
+
+    /**
+     * Devuelve todos los autónomos registrados.
+     * Solo para uso administrativo (notificaciones, tareas periódicas).
+     */
+    public List<Autonomo> findAll() {
+        try (Connection conn = DbUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(SQL_SELECT)) {
+
+            List<Autonomo> lista = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) lista.add(mapRow(rs));
+            }
+            return lista;
+
+        } catch (SQLException e) {
+            throw new DaoException("Error listando todos los autónomos", e);
         }
     }
 

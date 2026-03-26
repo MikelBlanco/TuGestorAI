@@ -24,6 +24,11 @@ public class UserSession {
     private String pendingXlsxNombre;
     /** Número de ediciones realizadas sobre el borrador actual. */
     private int contadorEdiciones;
+    /**
+     * ID del cliente existente que el autónomo ha confirmado que es el mismo.
+     * {@code null} si no hay coincidencia o si el autónomo eligió crear uno nuevo.
+     */
+    private Long clienteExistenteId;
     private Instant lastActivity = Instant.now();
 
     public UserSession(long chatId) {
@@ -45,6 +50,7 @@ public class UserSession {
         this.pendingXlsxBytes = null;
         this.pendingXlsxNombre = null;
         this.contadorEdiciones = 0;
+        this.clienteExistenteId = null;
         touch();
     }
 
@@ -95,6 +101,12 @@ public class UserSession {
     public int getContadorEdiciones() { return contadorEdiciones; }
     public void incrementarEdiciones() { this.contadorEdiciones++; touch(); }
     public void resetContadorEdiciones() { this.contadorEdiciones = 0; }
+
+    public Long getClienteExistenteId() { return clienteExistenteId; }
+    public void setClienteExistenteId(Long clienteExistenteId) {
+        this.clienteExistenteId = clienteExistenteId;
+        touch();
+    }
 
     public Instant getLastActivity() { return lastActivity; }
 }

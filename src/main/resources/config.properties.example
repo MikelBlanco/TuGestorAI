@@ -5,6 +5,9 @@ db.password=
 telegram.bot.token=
 telegram.bot.username=
 
+# URL pública del panel web (se muestra al autónomo cuando usa /panel)
+panel.url=https://tudominio.com/panel
+
 openai.api.key=
 
 anthropic.api.key=
@@ -55,3 +58,19 @@ limit.cost.daily.max=3.00
 # Segundos tras los que se borran automáticamente los mensajes con documentos en Telegram.
 # Defecto: 300 = 5 minutos
 limit.telegram.doc.ttl=300
+
+# ─── Notificaciones automáticas por email ────────────────────────────────────
+
+# Recordatorio semanal: lista de presupuestos aceptados sin facturar.
+# Solo se envía a autónomos que tengan pendientes. Si no hay, no se molesta.
+# Días válidos: MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
+notificacion.recordatorio.enabled=true
+notificacion.recordatorio.dia=MONDAY
+notificacion.recordatorio.hora=09:00
+
+# Resumen mensual: estadísticas del mes anterior.
+# Se ejecuta diariamente a la hora indicada y solo envía el día configurado.
+# dia: 1-28 (se evita 29-31 para compatibilidad con todos los meses)
+notificacion.resumen.enabled=true
+notificacion.resumen.dia=1
+notificacion.resumen.hora=08:00

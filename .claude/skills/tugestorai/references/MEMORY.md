@@ -1,4 +1,4 @@
-# TuGestorAI — Memoria del Proyecto
+# PresupuestoAI — Memoria del Proyecto
 
 ## Índice de memorias
 
@@ -47,22 +47,40 @@ util/        ConfigUtil, CryptoUtil, DbUtil, RateLimiter
 
 ## Flujo principal (estado actual)
 
-Audio → VoiceHandler → Whisper → Claude → borrador en Telegram
-→ CallbackHandler (confirmar) → BD + PDF + Excel → ambos por Telegram + pregunta email
-→ CallbackHandler (email_si) → EmailService (PDF + Excel adjuntos) → reset sesión
+Audio → VoiceHandler → Whisper → Claude → detección cliente → borrador en Telegram
+→ CallbackHandler (confirmar) → crea/vincula cliente → BD + PDF + Excel → envío por email
+→ reset sesión
 
-Estados de sesión: IDLE → ESPERANDO_CONFIRMACION → ESPERANDO_CONFIRMACION_EMAIL → IDLE
-También: EDITANDO, REGISTRO_NOMBRE, REGISTRO_NIF, REGISTRO_DIRECCION
+Estados de sesión: IDLE, ESPERANDO_CONFIRMACION, EDITANDO, ESPERANDO_OPCION_ENVIO,
+PENDIENTE_CONSENTIMIENTO, REGISTRO_NOMBRE, REGISTRO_NIF, REGISTRO_DIRECCION,
+REGISTRO_EMAIL, CONFIRMANDO_CLIENTE
+
+## Flujo de autenticación en panel web
+
+1. Autónomo usa `/panel` en el bot → `TextHandler.generarTokenPanel()` → `TokenStore.generarToken(autonomoId)` → token UUID enviado por Telegram (válido 10 min, un solo uso)
+2. Usuario abre panel web, introduce el token en `Login.vue`
+3. Frontend: `POST /api/auth/login` con `{"token": "..."}` → `LoginApiServlet`
+4. `LoginApiServlet` llama a `TokenStore.validarToken(token)` → devuelve `Optional<Long> autonomoId`
+5. Si válido: invalida sesión anterior (anti-session-fixation), crea nueva sesión HTTP con `autonomo_id` en atributo de sesión
+6. Responde con datos públicos del autónomo: `{"id":..., "nombre":"...", "plan":"..."}`
+7. Resto de peticiones al panel: `AuthFilter` lee `session.getAttribute("autonomo_id")`, propaga como `request.setAttribute("autonomo_id", ...)` para que los servlets lo usen
+8. `POST /api/auth/logout` → `session.invalidate()`
 
 ## Seguridad implementada
 
 - Cifrado AES-256-GCM: `CryptoUtil`. Campos cifrados en BD:
-  - `usuarios`: nif, direccion, telefono, email
+  - `autonomos`: nif, direccion, telefono, email
+  - `clientes`: nif, direccion, telefono, email
   - `presupuestos`: audio_transcript
   - Clave desde `CRYPTO_SECRET_KEY` / `crypto.secret.key` (Base64, 32 bytes)
-- Autorización por tabla `usuarios_autorizados`, caché en memoria con TTL 5 min
+- Autorización por tabla `autonomos_autorizados`, caché en memoria con TTL 5 min
 - Rate limiting por usuario: audio/texto/email/coste global (`RateLimiter`)
 - config.properties excluido de git — usar config.properties.example como plantilla
+- Autenticación panel web mediante sesiones HTTP (sin JWT):
+  - `TokenStore`: singleton, tokens UUID de un solo uso con TTL 10 min
+  - `AuthFilter`: protege `/api/*`, excluye `/api/auth/*`
+  - `LoginApiServlet`: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+  - `autonomoPublico()` en LoginApiServlet: solo devuelve id/nombre/plan al frontend (nunca NIF/email/dir)
 
 ## Patrones clave
 
