@@ -6,8 +6,8 @@ import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
 import org.gestorai.dao.AutonomoDao;
 import org.gestorai.dao.ClienteDao;
-import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
+import org.gestorai.service.PresupuestoService;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.Cliente;
 import org.gestorai.model.DatosPresupuesto;
@@ -46,7 +46,7 @@ public class VoiceHandler {
     private final WhisperService whisperService = new WhisperService();
     private final ClaudeService claudeService = new ClaudeService();
     private final AutonomoDao autonomoDao = new AutonomoDao();
-    private final PresupuestoDao presupuestoDao = new PresupuestoDao();
+    private final PresupuestoService presupuestoService = new PresupuestoService();
     private final ClienteDao clienteDao = new ClienteDao();
     private final SessionManager sessionManager = SessionManager.getInstance();
     private final RateLimiter rateLimiter = RateLimiter.getInstance();
@@ -95,15 +95,12 @@ public class VoiceHandler {
         }
         boolean esEdicion = session.getState() == SessionState.EDITANDO;
         if (!esEdicion) {
-            int presupuestosMes = presupuestoDao.contarPorAutonomoEnMes(autonomo.getId());
-            autonomo.setPresupuestosMes(presupuestosMes);
-            if (!autonomo.puedeCrearPresupuesto()) {
+            try {
+                presupuestoService.verificarLimiteFreemium(autonomo.getId(), autonomo.getPlan());
+            } catch (ServiceException e) {
                 bot.execute(SendMessage.builder()
                         .chatId(chatId)
-                        .text(String.format(
-                                "Has alcanzado el límite de %d presupuestos este mes con el plan gratuito.\n\n" +
-                                "Usa /plan para ver cómo actualizar a PRO.",
-                                Autonomo.LIMITE_PRESUPUESTOS_FREE))
+                        .text(e.getMessage())
                         .build());
                 return;
             }

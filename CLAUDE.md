@@ -47,6 +47,16 @@ npm run build            # Build para producción
 
 Consulta `.claude/skills/tugestorai/SKILL.md` para arquitectura detallada, patrones de código, modelo de datos y guías de integración.
 
+## Memoria del proyecto
+
+Lee **siempre** los ficheros en `.claude/memory/` al inicio de cada conversación:
+
+- `.claude/memory/MEMORY.md` — índice
+- `.claude/memory/project_estado.md` — estado actual del proyecto, cambios recientes y deuda técnica
+- `.claude/memory/user_perfil.md` — perfil y preferencias del desarrollador
+
+Mantén estos ficheros actualizados cuando haya cambios relevantes en el proyecto.
+
 ## Idioma
 
 Comunicarse siempre en castellano (español de España).

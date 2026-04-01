@@ -3,9 +3,10 @@ package org.gestorai.servlet;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSerializer;
-import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.dao.AutonomoDao;
+import org.gestorai.exception.ServiceException;
 import org.gestorai.filter.AuthFilter;
+import org.gestorai.service.PresupuestoService;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.Presupuesto;
 import jakarta.servlet.ServletException;
@@ -37,7 +38,7 @@ public class PresupuestoApiServlet extends HttpServlet {
 
     private static final Logger log = LoggerFactory.getLogger(PresupuestoApiServlet.class);
 
-    private final PresupuestoDao presupuestoDao = new PresupuestoDao();
+    private final PresupuestoService presupuestoService = new PresupuestoService();
     private final AutonomoDao autonomoDao = new AutonomoDao();
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(LocalDateTime.class,
@@ -66,23 +67,16 @@ public class PresupuestoApiServlet extends HttpServlet {
         if (pathInfo == null || pathInfo.equals("/")) {
             // Listado
             String estado = req.getParameter("estado");
-            List<Presupuesto> lista = (estado != null && !estado.isBlank())
-                    ? presupuestoDao.findByAutonomoIdAndEstado(autonomoId, estado)
-                    : presupuestoDao.findByAutonomoId(autonomoId);
+            List<Presupuesto> lista = presupuestoService.listar(autonomoId, estado);
             resp.getWriter().write(gson.toJson(lista));
 
         } else {
-            // Detalle
+            // Detalle — findById garantiza aislamiento multi-tenant
             long id = parsearId(pathInfo, resp);
             if (id < 0) return;
 
-            presupuestoDao.findById(id).ifPresentOrElse(
+            presupuestoService.findById(autonomoId, id).ifPresentOrElse(
                     p -> {
-                        if (!p.getAutonomoId().equals(autonomoId)) {
-                            try { enviarError(resp, HttpServletResponse.SC_FORBIDDEN, "Sin acceso"); }
-                            catch (IOException e) { log.error("Error enviando 403", e); }
-                            return;
-                        }
                         try { resp.getWriter().write(gson.toJson(p)); }
                         catch (IOException e) { log.error("Error escribiendo respuesta", e); }
                     },
@@ -126,14 +120,7 @@ public class PresupuestoApiServlet extends HttpServlet {
             return;
         }
 
-        // Verificar pertenencia
-        Optional<Presupuesto> presupuestoOpt = presupuestoDao.findById(id);
-        if (presupuestoOpt.isEmpty() || !presupuestoOpt.get().getAutonomoId().equals(autonomoId)) {
-            enviarError(resp, HttpServletResponse.SC_NOT_FOUND, "No encontrado");
-            return;
-        }
-
-        // Leer nuevo estado del body JSON: {"estado": "aceptado"}
+        // Leer nuevo estado del body JSON: {"estado": "ACEPTADO"}
         @SuppressWarnings("unchecked")
         Map<String, String> body = gson.fromJson(req.getReader(), Map.class);
         String nuevoEstado = body != null ? body.get("estado") : null;
@@ -143,7 +130,13 @@ public class PresupuestoApiServlet extends HttpServlet {
             return;
         }
 
-        presupuestoDao.actualizarEstado(id, nuevoEstado);
+        try {
+            // cambiarEstadoPorId verifica pertenencia, existencia y transición válida
+            presupuestoService.cambiarEstadoPorId(autonomoId, id, nuevoEstado);
+        } catch (ServiceException e) {
+            enviarError(resp, HttpServletResponse.SC_CONFLICT, e.getMessage());
+            return;
+        }
         resp.getWriter().write("{\"ok\":true,\"estado\":\"" + nuevoEstado + "\"}");
     }
 

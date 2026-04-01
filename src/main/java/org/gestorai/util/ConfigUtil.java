@@ -22,7 +22,7 @@ public class ConfigUtil {
         } catch (IOException e) {
             throw new RuntimeException("No se pudo cargar config.properties", e);
         }
-        // Variables de entorno sobreescriben el fichero
+        // Variables de entorno sobreescriben el fichero (solo para claves ya presentes)
         props.stringPropertyNames().forEach(key -> {
             String envKey = key.toUpperCase().replace('.', '_');
             String envVal = System.getenv(envKey);
@@ -35,10 +35,14 @@ public class ConfigUtil {
     private ConfigUtil() {}
 
     public static String get(String key) {
-        return props.getProperty(key);
+        String value = props.getProperty(key);
+        if (value != null) return value;
+        // Si la clave no estaba en config.properties, buscar directamente en env vars
+        return System.getenv(key.toUpperCase().replace('.', '_'));
     }
 
     public static String get(String key, String defaultValue) {
-        return props.getProperty(key, defaultValue);
+        String value = get(key);
+        return value != null ? value : defaultValue;
     }
 }

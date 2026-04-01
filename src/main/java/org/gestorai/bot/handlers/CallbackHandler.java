@@ -6,7 +6,6 @@ import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
 import org.gestorai.dao.AutonomoDao;
 import org.gestorai.dao.ClienteDao;
-import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.Cliente;
@@ -14,8 +13,8 @@ import org.gestorai.model.DatosPresupuesto;
 import org.gestorai.model.Presupuesto;
 import org.gestorai.service.EmailService;
 import org.gestorai.service.ExcelService;
-import org.gestorai.service.NumeracionService;
 import org.gestorai.service.PdfService;
+import org.gestorai.service.PresupuestoService;
 import org.gestorai.util.ConfigUtil;
 import org.gestorai.util.RateLimiter;
 import org.slf4j.Logger;
@@ -62,10 +61,9 @@ public class CallbackHandler {
     }
 
     private final SessionManager sessionManager = SessionManager.getInstance();
-    private final PresupuestoDao presupuestoDao = new PresupuestoDao();
+    private final PresupuestoService presupuestoService = new PresupuestoService();
     private final AutonomoDao autonomoDao = new AutonomoDao();
     private final ClienteDao clienteDao = new ClienteDao();
-    private final NumeracionService numeracionService = new NumeracionService();
     private final PdfService pdfService = new PdfService();
     private final ExcelService excelService = new ExcelService();
     private final EmailService emailService = new EmailService();
@@ -214,21 +212,8 @@ public class CallbackHandler {
 
         Long clienteId = resolverCliente(autonomo.getId(), datos, session);
 
-        Presupuesto p = new Presupuesto();
-        p.setAutonomoId(autonomo.getId());
-        p.setClienteId(clienteId);
-        p.setClienteNombre(datos.getClienteNombre());
-        p.setNotas(datos.getDescripcion());
-        p.setSubtotal(datos.calcularSubtotal());
-        p.setIvaPorcentaje(datos.getIvaPorcentaje());
-        p.setIvaImporte(datos.calcularIvaImporte());
-        p.setTotal(datos.calcularTotal());
-        p.setEstado(Presupuesto.ESTADO_BORRADOR);
-        p.setAudioTranscript(session.getTranscripcion());
-        p.setLineas(datos.getLineas());
-        p.setNumero(numeracionService.siguienteNumeroPresupuesto(autonomo.getId()));
-
-        Presupuesto guardado = presupuestoDao.crear(p);
+        Presupuesto guardado = presupuestoService.crear(
+                autonomo.getId(), clienteId, datos, session.getTranscripcion());
 
         String resumen = String.format("✅ Presupuesto <b>%s</b> generado (%.2f€)",
                 guardado.getNumero(), guardado.getTotal());

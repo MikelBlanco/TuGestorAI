@@ -6,7 +6,6 @@ import org.gestorai.bot.session.SessionState;
 import org.gestorai.bot.session.UserSession;
 import org.gestorai.dao.AutonomoDao;
 import org.gestorai.dao.ClienteDao;
-import org.gestorai.dao.PresupuestoDao;
 import org.gestorai.exception.ServiceException;
 import org.gestorai.model.Autonomo;
 import org.gestorai.model.Cliente;
@@ -17,6 +16,7 @@ import org.gestorai.service.ClaudeService;
 import org.gestorai.service.EmailService;
 import org.gestorai.service.ExcelService;
 import org.gestorai.service.PdfService;
+import org.gestorai.service.PresupuestoService;
 import org.gestorai.util.ConfigUtil;
 import org.gestorai.util.RateLimiter;
 import org.gestorai.util.TokenStore;
@@ -50,7 +50,7 @@ public class TextHandler {
     private static final Logger log = LoggerFactory.getLogger(TextHandler.class);
 
     private final AutonomoDao autonomoDao = new AutonomoDao();
-    private final PresupuestoDao presupuestoDao = new PresupuestoDao();
+    private final PresupuestoService presupuestoService = new PresupuestoService();
     private final ClienteDao clienteDao = new ClienteDao();
     private final ClaudeService claudeService = new ClaudeService();
     private final PdfService pdfService = new PdfService();
@@ -119,14 +119,11 @@ public class TextHandler {
             return;
         }
 
-        // Verificar límite del plan freemium (contar desde BD)
-        int presupuestosMes = presupuestoDao.contarPorAutonomoEnMes(autonomo.getId());
-        autonomo.setPresupuestosMes(presupuestosMes);
-        if (!autonomo.puedeCrearPresupuesto()) {
-            enviarMensaje(bot, chatId, String.format(
-                    "Has alcanzado el límite de %d presupuestos este mes con el plan gratuito.\n\n" +
-                    "Usa /plan para ver cómo actualizar a PRO.",
-                    Autonomo.LIMITE_PRESUPUESTOS_FREE));
+        // Verificar límite del plan freemium
+        try {
+            presupuestoService.verificarLimiteFreemium(autonomo.getId(), autonomo.getPlan());
+        } catch (ServiceException e) {
+            enviarMensaje(bot, chatId, e.getMessage());
             return;
         }
 
@@ -397,7 +394,7 @@ public class TextHandler {
                     if (a.esPro()) {
                         texto = "⭐ <b>Plan PRO</b> — Presupuestos y facturas ilimitadas.";
                     } else {
-                        int usados = presupuestoDao.contarPorAutonomoEnMes(a.getId());
+                        int usados = presupuestoService.contarPresupuestosMes(a.getId());
                         texto = String.format(
                                 "Plan <b>FREE</b> — %d de %d presupuestos usados este mes.\n\n" +
                                 "Hazte PRO para presupuestos ilimitados y generación de facturas.",
@@ -493,7 +490,7 @@ public class TextHandler {
             if (month > hoy.getMonthValue()) year--;
         }
 
-        List<Presupuesto> lista = presupuestoDao.listarPorMes(autonomoId, year, month);
+        List<Presupuesto> lista = presupuestoService.listarPorMes(autonomoId, year, month);
 
         if (lista.isEmpty()) {
             String periodo = nombreMes != null ? nombreMes + " " + year
@@ -523,7 +520,7 @@ public class TextHandler {
             return;
         }
 
-        List<Presupuesto> pendientes = presupuestoDao.listarPendientes(autonomoOpt.get().getId());
+        List<Presupuesto> pendientes = presupuestoService.listarPendientes(autonomoOpt.get().getId());
 
         if (pendientes.isEmpty()) {
             enviarMensaje(bot, chatId, "✅ No tienes presupuestos pendientes de facturar.");
@@ -566,26 +563,13 @@ public class TextHandler {
         String numero = partes[1].trim().toUpperCase();
         long autonomoId = autonomoOpt.get().getId();
 
-        Optional<Presupuesto> presupuestoOpt = presupuestoDao.findByNumeroYAutonomo(autonomoId, numero);
-        if (presupuestoOpt.isEmpty()) {
-            enviarMensaje(bot, chatId, "No he encontrado el presupuesto " + numero + ".");
+        try {
+            presupuestoService.cambiarEstadoPorNumero(autonomoId, numero, nuevoEstado);
+        } catch (ServiceException e) {
+            enviarMensaje(bot, chatId, e.getMessage());
             return;
         }
-
-        Presupuesto p = presupuestoOpt.get();
-        String estadoActual = p.getEstado();
-
-        if (!esTransicionValida(estadoActual, nuevoEstado)) {
-            enviarMensaje(bot, chatId, String.format(
-                    "No se puede cambiar el estado de %s a %s.\n" +
-                    "El presupuesto está en estado: %s.",
-                    numero, nuevoEstado.toLowerCase(), estadoActual));
-            return;
-        }
-
-        presupuestoDao.actualizarEstado(p.getId(), nuevoEstado);
-        log.info("Estado presupuesto {} cambiado {} → {} por telegramId={}",
-                numero, estadoActual, nuevoEstado, telegramId);
+        log.info("Estado presupuesto {} → {} por telegramId={}", numero, nuevoEstado, telegramId);
 
         String emoji = switch (nuevoEstado) {
             case Presupuesto.ESTADO_ACEPTADO  -> "✅";
@@ -629,8 +613,7 @@ public class TextHandler {
 
         String numero = partes[1].trim().toUpperCase();
 
-        Optional<Presupuesto> presupuestoOpt =
-                presupuestoDao.findByNumeroYAutonomo(autonomo.getId(), numero);
+        Optional<Presupuesto> presupuestoOpt = presupuestoService.findByNumero(autonomo.getId(), numero);
         if (presupuestoOpt.isEmpty()) {
             enviarMensaje(bot, chatId, "No he encontrado el presupuesto " + numero + ".");
             return;
@@ -672,15 +655,6 @@ public class TextHandler {
     // -------------------------------------------------------------------------
     // Helpers de estado y formato de listas
     // -------------------------------------------------------------------------
-
-    private boolean esTransicionValida(String estadoActual, String nuevoEstado) {
-        return switch (nuevoEstado) {
-            case Presupuesto.ESTADO_ACEPTADO  -> Presupuesto.ESTADO_ENVIADO.equals(estadoActual);
-            case Presupuesto.ESTADO_RECHAZADO -> Presupuesto.ESTADO_ENVIADO.equals(estadoActual);
-            case Presupuesto.ESTADO_FACTURADO -> Presupuesto.ESTADO_ACEPTADO.equals(estadoActual);
-            default -> false;
-        };
-    }
 
     private String formatearListaPresupuestos(List<Presupuesto> lista, boolean mostrarEstado) {
         StringBuilder sb = new StringBuilder();
