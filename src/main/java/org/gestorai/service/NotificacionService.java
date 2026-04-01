@@ -125,7 +125,7 @@ public class NotificacionService {
             for (Autonomo a : todos) {
                 try { if (recordatorioSiProcede(a)) enviados++; }
                 catch (Exception e) {
-                    log.error("Error en recordatorio autónomo id={}: {}", a.getId(), e.getMessage());
+                    log.error("Error en recordatorio autónomo id={}", a.getId(), e);
                 }
             }
             log.info("Recordatorios semanales: {}/{} enviados", enviados, todos.size());
@@ -183,7 +183,7 @@ public class NotificacionService {
             for (Autonomo a : todos) {
                 try { if (enviarResumenMensual(a, mes.getYear(), mes.getMonthValue())) enviados++; }
                 catch (Exception e) {
-                    log.error("Error en resumen mensual autónomo id={}: {}", a.getId(), e.getMessage());
+                    log.error("Error en resumen mensual autónomo id={}", a.getId(), e);
                 }
             }
             log.info("Resúmenes {}/{}: {}/{} enviados", mes.getMonthValue(), mes.getYear(), enviados, todos.size());

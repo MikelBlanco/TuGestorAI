@@ -180,13 +180,13 @@ public class VoiceHandler {
             }
 
         } catch (IOException e) {
-            log.error("Error al preparar fichero de audio chatId={}: {}", chatId, e.getMessage(), e);
+            log.error("Error al preparar fichero de audio chatId={}", chatId, e);
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("⚠️ Error al procesar el fichero de audio. Inténtalo de nuevo.")
                     .build());
         } catch (ServiceException e) {
-            log.error("Error procesando audio chatId={}: {}", chatId, e.getMessage());
+            log.error("Error procesando audio chatId={}", chatId, e);
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo enviando otro audio.")

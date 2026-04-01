@@ -500,7 +500,7 @@ public class CallbackHandler {
             log.info("Presupuesto enviado por email autonomo={}", autonomo.getId());
 
         } catch (ServiceException e) {
-            log.error("Error enviando email autonomo={}: {}", autonomo.getId(), e.getMessage());
+            log.error("Error enviando email autonomo={}", autonomo.getId(), e);
             try {
                 bot.execute(SendMessage.builder()
                         .chatId(chatId)

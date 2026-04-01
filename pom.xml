@@ -89,6 +89,12 @@
             <artifactId>logback-classic</artifactId>
             <version>1.5.18</version>
         </dependency>
+        <!-- Puente Log4j2 API → SLF4J (telegrambots arrastra log4j-api transitivamente) -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>2.24.3</version>
+        </dependency>
 
         <!-- Testing -->
         <dependency>

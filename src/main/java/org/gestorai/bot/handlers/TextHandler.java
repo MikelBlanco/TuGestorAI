@@ -175,7 +175,7 @@ public class TextHandler {
                     .build());
 
         } catch (ServiceException e) {
-            log.error("Error procesando texto presupuesto chatId={}: {}", chatId, e.getMessage());
+            log.error("Error procesando texto presupuesto chatId={}", chatId, e);
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo.")
@@ -647,7 +647,7 @@ public class TextHandler {
             log.info("Presupuesto {} reenviado por email a telegramId={}", numero, telegramId);
 
         } catch (ServiceException e) {
-            log.error("Error reenviando presupuesto {} chatId={}: {}", numero, chatId, e.getMessage());
+            log.error("Error reenviando presupuesto {} chatId={}", numero, chatId, e);
             enviarMensaje(bot, chatId, "⚠️ Error al reenviar el presupuesto. Inténtalo de nuevo.");
         }
     }
@@ -866,7 +866,7 @@ public class TextHandler {
                     .build());
 
         } catch (ServiceException e) {
-            log.error("Error editando borrador chatId={}: {}", chatId, e.getMessage());
+            log.error("Error editando borrador chatId={}", chatId, e);
             bot.execute(SendMessage.builder()
                     .chatId(chatId)
                     .text("⚠️ " + e.getMessage() + "\n\nInténtalo de nuevo con otra descripción.")
