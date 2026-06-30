@@ -1,42 +1,24 @@
 -- =============================================
--- TuGestorAI - Esquema de base de datos
--- PostgreSQL
+-- TuGestorAI - Reset del esquema (dev)
+-- Ejecutar conectado a la BD tugestorai como superusuario
+-- ELIMINA todas las tablas existentes y recrea el esquema actual
 -- =============================================
 
+-- ── Paso 1: eliminar tablas antiguas ─────────────────────────────────────────
 
--- =============================================
--- SECCIÓN 0: Usuario y base de datos
--- Ejecutar como superusuario (postgres) ANTES del resto del esquema
--- =============================================
+DROP TABLE IF EXISTS public.lineas_detalle       CASCADE;
+DROP TABLE IF EXISTS public.facturas             CASCADE;
+DROP TABLE IF EXISTS public.presupuestos         CASCADE;
+DROP TABLE IF EXISTS public.clientes             CASCADE;
+DROP TABLE IF EXISTS public.usuarios             CASCADE;
+DROP TABLE IF EXISTS public.usuarios_autorizados CASCADE;
+DROP TABLE IF EXISTS public.autonomos            CASCADE;
+DROP TABLE IF EXISTS public.autonomos_autorizados CASCADE;
 
--- Crear usuario de aplicación
--- ⚠️  CAMBIAR la contraseña antes de ejecutar en producción
-CREATE USER tugestorai WITH PASSWORD 'CAMBIAR_ANTES_DE_PRODUCCION';
-
--- Crear base de datos propiedad del usuario
-CREATE DATABASE tugestorai OWNER tugestorai ENCODING 'UTF8';
-
--- Conectar a la base de datos antes de continuar:
--- \c tugestorai
-
--- Permisos sobre el esquema public
-GRANT CONNECT ON DATABASE tugestorai TO tugestorai;
-GRANT USAGE ON SCHEMA public TO tugestorai;
-
--- Permisos sobre tablas y secuencias existentes
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tugestorai;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO tugestorai;
-
--- Permisos sobre tablas y secuencias que se creen en el futuro
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tugestorai;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO tugestorai;
+DROP FUNCTION IF EXISTS public.actualizar_updated_at() CASCADE;
 
 
--- =============================================
--- SECCIÓN 1: Tablas
--- =============================================
+-- ── Paso 2: tablas ────────────────────────────────────────────────────────────
 
 -- Lista blanca de autónomos autorizados para usar el bot
 CREATE TABLE autonomos_autorizados (
@@ -80,20 +62,20 @@ CREATE TABLE clientes (
 -- Presupuestos
 -- Los documentos (PDF/Excel) se generan en memoria y NO se almacenan en disco.
 CREATE TABLE presupuestos (
-    id              BIGSERIAL PRIMARY KEY,
-    autonomo_id     BIGINT NOT NULL REFERENCES autonomos(id) ON DELETE RESTRICT,
-    cliente_id      BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
-    numero          VARCHAR(50) UNIQUE NOT NULL,
-    estado          VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
-    cliente_nombre  VARCHAR(200),
-    subtotal        NUMERIC(10,2),
-    iva_porcentaje  NUMERIC(4,2) DEFAULT 21.00,
-    iva_importe     NUMERIC(10,2),
-    total           NUMERIC(10,2),
+    id               BIGSERIAL PRIMARY KEY,
+    autonomo_id      BIGINT NOT NULL REFERENCES autonomos(id) ON DELETE RESTRICT,
+    cliente_id       BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
+    numero           VARCHAR(50) NOT NULL,
+    estado           VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
+    cliente_nombre   VARCHAR(200),
+    subtotal         NUMERIC(10,2),
+    iva_porcentaje   NUMERIC(4,2) DEFAULT 21.00,
+    iva_importe      NUMERIC(10,2),
+    total            NUMERIC(10,2),
     audio_transcript TEXT,                       -- cifrado AES-256-GCM
-    notas           TEXT,
-    created_at      TIMESTAMP DEFAULT NOW(),
-    updated_at      TIMESTAMP
+    notas            TEXT,
+    created_at       TIMESTAMP DEFAULT NOW(),
+    updated_at       TIMESTAMP
 );
 
 -- Facturas
@@ -103,7 +85,7 @@ CREATE TABLE facturas (
     autonomo_id     BIGINT NOT NULL REFERENCES autonomos(id) ON DELETE RESTRICT,
     presupuesto_id  BIGINT REFERENCES presupuestos(id) ON DELETE SET NULL,
     cliente_id      BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
-    numero          VARCHAR(50) UNIQUE NOT NULL,
+    numero          VARCHAR(50) NOT NULL,
     estado          VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
     cliente_nombre  VARCHAR(200),
     subtotal        NUMERIC(10,2),
@@ -135,27 +117,25 @@ CREATE TABLE lineas_detalle (
 );
 
 
--- =============================================
--- SECCIÓN 2: Índices
--- =============================================
+-- ── Paso 3: índices ───────────────────────────────────────────────────────────
 
-CREATE INDEX idx_clientes_autonomo    ON clientes(autonomo_id);
-CREATE INDEX idx_clientes_nombre      ON clientes(autonomo_id, nombre);
+CREATE INDEX idx_clientes_autonomo     ON clientes(autonomo_id);
+CREATE INDEX idx_clientes_nombre       ON clientes(autonomo_id, nombre);
 
+CREATE UNIQUE INDEX uq_presupuestos_numero ON presupuestos(autonomo_id, numero);
 CREATE INDEX idx_presupuestos_autonomo ON presupuestos(autonomo_id);
 CREATE INDEX idx_presupuestos_estado   ON presupuestos(autonomo_id, estado);
 CREATE INDEX idx_presupuestos_fecha    ON presupuestos(autonomo_id, created_at DESC);
 
-CREATE INDEX idx_facturas_autonomo    ON facturas(autonomo_id);
-CREATE INDEX idx_facturas_estado      ON facturas(autonomo_id, estado);
+CREATE UNIQUE INDEX uq_facturas_numero ON facturas(autonomo_id, numero);
+CREATE INDEX idx_facturas_autonomo     ON facturas(autonomo_id);
+CREATE INDEX idx_facturas_estado       ON facturas(autonomo_id, estado);
 
-CREATE INDEX idx_lineas_presupuesto   ON lineas_detalle(presupuesto_id);
-CREATE INDEX idx_lineas_factura       ON lineas_detalle(factura_id);
+CREATE INDEX idx_lineas_presupuesto    ON lineas_detalle(presupuesto_id);
+CREATE INDEX idx_lineas_factura        ON lineas_detalle(factura_id);
 
 
--- =============================================
--- SECCIÓN 3: Funciones y triggers
--- =============================================
+-- ── Paso 4: función y triggers para updated_at ───────────────────────────────
 
 CREATE OR REPLACE FUNCTION actualizar_updated_at()
 RETURNS TRIGGER AS $$
@@ -182,10 +162,13 @@ CREATE TRIGGER trg_facturas_updated
     FOR EACH ROW EXECUTE FUNCTION actualizar_updated_at();
 
 
--- =============================================
--- SECCIÓN 4: Datos iniciales
--- =============================================
+-- ── Paso 5: permisos al usuario de aplicación ────────────────────────────────
 
--- Autónomo autorizado inicialmente (sustituir por el telegram_id real)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tugestorai;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO tugestorai;
+
+
+-- ── Paso 6: datos iniciales ───────────────────────────────────────────────────
+
 INSERT INTO autonomos_autorizados (telegram_id, autorizado_por)
 VALUES (666004366, 'admin_inicial');

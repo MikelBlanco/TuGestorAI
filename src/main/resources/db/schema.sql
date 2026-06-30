@@ -10,7 +10,8 @@
 -- =============================================
 
 -- Crear usuario de aplicación
-CREATE USER tugestorai WITH PASSWORD 'tugestorai';
+-- ⚠️  CAMBIAR la contraseña antes de ejecutar en producción
+CREATE USER tugestorai WITH PASSWORD 'CAMBIAR_ANTES_DE_PRODUCCION';
 
 -- Crear base de datos propiedad del usuario
 CREATE DATABASE tugestorai OWNER tugestorai ENCODING 'UTF8';
@@ -82,7 +83,7 @@ CREATE TABLE presupuestos (
     id              BIGSERIAL PRIMARY KEY,
     autonomo_id     BIGINT NOT NULL REFERENCES autonomos(id) ON DELETE RESTRICT,
     cliente_id      BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
-    numero          VARCHAR(50) UNIQUE NOT NULL,
+    numero          VARCHAR(50) NOT NULL,
     estado          VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
     cliente_nombre  VARCHAR(200),
     subtotal        NUMERIC(10,2),
@@ -102,7 +103,7 @@ CREATE TABLE facturas (
     autonomo_id     BIGINT NOT NULL REFERENCES autonomos(id) ON DELETE RESTRICT,
     presupuesto_id  BIGINT REFERENCES presupuestos(id) ON DELETE SET NULL,
     cliente_id      BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
-    numero          VARCHAR(50) UNIQUE NOT NULL,
+    numero          VARCHAR(50) NOT NULL,
     estado          VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
     cliente_nombre  VARCHAR(200),
     subtotal        NUMERIC(10,2),
@@ -141,10 +142,12 @@ CREATE TABLE lineas_detalle (
 CREATE INDEX idx_clientes_autonomo    ON clientes(autonomo_id);
 CREATE INDEX idx_clientes_nombre      ON clientes(autonomo_id, nombre);
 
+CREATE UNIQUE INDEX uq_presupuestos_numero ON presupuestos(autonomo_id, numero);
 CREATE INDEX idx_presupuestos_autonomo ON presupuestos(autonomo_id);
 CREATE INDEX idx_presupuestos_estado   ON presupuestos(autonomo_id, estado);
 CREATE INDEX idx_presupuestos_fecha    ON presupuestos(autonomo_id, created_at DESC);
 
+CREATE UNIQUE INDEX uq_facturas_numero ON facturas(autonomo_id, numero);
 CREATE INDEX idx_facturas_autonomo    ON facturas(autonomo_id);
 CREATE INDEX idx_facturas_estado      ON facturas(autonomo_id, estado);
 
