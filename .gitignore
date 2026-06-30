@@ -38,6 +38,10 @@ build/
 ### Mac OS ###
 .DS_Store
 
+### Frontend ###
+frontend/node_modules/
+frontend/dist/
+
 ### TuGestorAI — ficheros locales con credenciales y datos generados ###
 src/main/resources/config.properties
 src/main/profiles/dev/config.properties
