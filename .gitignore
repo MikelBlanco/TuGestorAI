@@ -41,6 +41,7 @@ build/
 ### Frontend ###
 frontend/node_modules/
 frontend/dist/
+src/main/webapp/static/
 
 ### TuGestorAI — ficheros locales con credenciales y datos generados ###
 src/main/resources/config.properties
