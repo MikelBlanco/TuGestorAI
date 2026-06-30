@@ -61,3 +61,15 @@ export const facturasApi = {
   cambiarEstado: (id, estado) =>
     request('PUT', `/facturas/${id}/estado`, { estado })
 }
+
+// -------------------------------------------------------------------------
+// Perfil
+// -------------------------------------------------------------------------
+
+export const perfilApi = {
+  obtener: () =>
+    request('GET', '/perfil'),
+
+  actualizar: (datos) =>
+    request('PUT', '/perfil', datos)
+}

@@ -69,6 +69,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useUsuarioStore } from '@/stores/usuario'
+import { perfilApi } from '@/api'
 
 const store = useUsuarioStore()
 
@@ -100,11 +101,19 @@ function cancelar() {
 }
 
 async function guardar() {
-  // TODO: conectar con endpoint PUT /api/perfil cuando esté implementado
   guardando.value = true
+  mensajeError.value = ''
+  mensajeOk.value = ''
   try {
-    await new Promise(r => setTimeout(r, 400)) // simulación
-    Object.assign(datos.value, form)
+    const perfilActualizado = await perfilApi.actualizar(form)
+    datos.value = perfilActualizado
+    
+    // Actualizar el store local de usuario
+    if (store.usuario) {
+      store.usuario.nombre = perfilActualizado.nombre
+      store.usuario.plan = perfilActualizado.plan
+    }
+    
     editando.value = false
     mensajeOk.value = 'Perfil actualizado correctamente.'
     setTimeout(() => mensajeOk.value = '', 3000)
@@ -116,9 +125,12 @@ async function guardar() {
 }
 
 onMounted(async () => {
-  // Por ahora cargamos desde el store; cuando haya endpoint GET /api/perfil lo usamos
-  datos.value = store.usuario || {}
-  rellenarForm()
+  try {
+    datos.value = await perfilApi.obtener()
+    rellenarForm()
+  } catch (e) {
+    mensajeError.value = 'Error al cargar el perfil: ' + e.message
+  }
 })
 </script>
 

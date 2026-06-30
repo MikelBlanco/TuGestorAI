@@ -1,0 +1,1 @@
+function n(t){return t?new Date(t).toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric"}):"—"}function e(t){return t==null?"0,00 €":Number(t).toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2})+" €"}export{e as a,n as f};
